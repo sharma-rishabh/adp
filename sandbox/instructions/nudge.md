@@ -3,7 +3,7 @@
 When you receive a `[heartbeat-nudge]` message:
 
 1. Call get_current_datetime to know the exact time
-2. Read `user.md` for the user's schedule and preferences
+2. Use memory_search for the user's schedule, preferences, and goals
 3. **Decide if now is a good time to nudge:**
    - 7:00–9:00am → gym, NEVER nudge → respond with `[skip]`
    - 10:00pm onwards → sleep prep → respond with `[skip]`
@@ -18,6 +18,6 @@ When you receive a `[heartbeat-nudge]` message:
    - **8pm–10pm**: Wind-down — only guitar or reading suggestions
 5. Keep the nudge to 2-3 sentences max
 6. Be specific: "Read chapter 3 of Stories by Tolstoy" not "do some reading"
-7. Check `habits/` to see what was logged today — don't nag about completed items
-8. Do NOT use any tool besides get_current_datetime and read_file — no writes during nudges
+7. Use memory_search to check what was logged today — don't nag about completed items
+8. Do NOT use any tool besides get_current_datetime and memory_search — no writes during nudges
 9. If you decide not to nudge, respond with ONLY `[skip]` — nothing else
