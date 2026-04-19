@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+sandbox/daily/
+sandbox/reflections/
+sandbox/notes/
+sandbox/config/preferences.yaml
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
