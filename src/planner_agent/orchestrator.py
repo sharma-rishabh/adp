@@ -178,16 +178,19 @@ class Orchestrator:
         Returns:
             An ``OutgoingMessage`` if a command was matched, else ``None``.
         """
-        text = incoming.text.strip().lower()
+        text = incoming.text.strip()
 
-        if text == "/memories":
+        if text.lower().startswith("/memories"):
             if self._mempalace:
-                reply = self._mempalace.format_listing()
+                # Extract optional filter: "/memories guitar" → "guitar"
+                parts = text.split(maxsplit=1)
+                query = parts[1].strip() if len(parts) > 1 else None
+                reply = self._mempalace.format_listing(query=query)
             else:
                 reply = "MemPalace is disabled (USE_MEMPALACE=false)."
             return OutgoingMessage(user_id=incoming.user_id, text=reply)
 
-        if text == "/clear":
+        if text.lower() == "/clear":
             self.clear_history(incoming.user_id)
             return OutgoingMessage(
                 user_id=incoming.user_id,

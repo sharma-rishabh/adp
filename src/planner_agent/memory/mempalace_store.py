@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # Hall types — maps to MemPalace's built-in hall structure
 HALL_FACTS = "hall_facts"
 HALL_EVENTS = "hall_events"
-HALL_PREFERENCES = "hall_preferences"
+HALL_PREFERENCES = "hall_prefs"
 HALL_ADVICE = "hall_advice"
 
 DEFAULT_WING = "wing_me"
@@ -195,10 +195,12 @@ class MemPalaceStore:
             logger.warning("MemPalace list_all failed: %s", e)
             return []
 
-    def format_listing(self, max_preview: int = 80) -> str:
-        """Human-readable dump of all memories (for /memories command).
+    def format_listing(self, query: str | None = None, max_preview: int = 80) -> str:
+        """Human-readable dump of memories (for /memories command).
 
         Args:
+            query: Optional filter — matches against hall, room, date,
+                or text content (case-insensitive substring).
             max_preview: Max characters of text shown per entry.
 
         Returns:
@@ -208,7 +210,23 @@ class MemPalaceStore:
         if not entries:
             return "🧠 MemPalace is empty — no memories stored yet."
 
-        lines = [f"🧠 MemPalace — {len(entries)} memories\n"]
+        if query:
+            q = query.lower()
+            entries = [
+                e for e in entries
+                if q in e["hall"].lower()
+                or q in e["room"].lower()
+                or q in e["date"].lower()
+                or q in e["text"].lower()
+            ]
+
+        if not entries:
+            return f"🧠 No memories matching '{query}'."
+
+        header = f"🧠 MemPalace — {len(entries)} memories"
+        if query:
+            header += f" matching '{query}'"
+        lines = [header + "\n"]
         for i, e in enumerate(entries, 1):
             preview = e["text"][:max_preview].replace("\n", " ")
             lines.append(
