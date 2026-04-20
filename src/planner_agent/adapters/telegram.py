@@ -67,7 +67,7 @@ class TelegramAdapter(BaseAdapter):
             MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_update)
         )
         self._application.add_handler(
-            CommandHandler(["memories", "clear"], self._handle_update)
+            CommandHandler(["memories", "clear", "skill"], self._handle_update)
         )
 
         logger.info("Starting Telegram adapter (polling)…")

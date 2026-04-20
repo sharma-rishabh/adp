@@ -197,5 +197,27 @@ class Orchestrator:
                 text="🗑️ Conversation history cleared.",
             )
 
+        if text.lower().startswith("/skill"):
+            parts = text.split(maxsplit=1)
+            if len(parts) < 2 or not parts[1].strip():
+                return OutgoingMessage(
+                    user_id=incoming.user_id,
+                    text="Usage: /skill <description>\n\n"
+                    "Example:\n/skill Budget Tracking — Track daily "
+                    "spending in budget/YYYY-MM.json as NDJSON. "
+                    "Categories: food, transport, entertainment.",
+                )
+            skill_text = parts[1].strip()
+            if self._mempalace:
+                self._mempalace.store(
+                    f"Skill: {skill_text}",
+                    hall="hall_facts",
+                    room="skill",
+                )
+                reply = f"🧠 Skill stored: {skill_text[:80]}…" if len(skill_text) > 80 else f"🧠 Skill stored: {skill_text}"
+            else:
+                reply = "MemPalace is disabled (USE_MEMPALACE=false)."
+            return OutgoingMessage(user_id=incoming.user_id, text=reply)
+
         return None
 
