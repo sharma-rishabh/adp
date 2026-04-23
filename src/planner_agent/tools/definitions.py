@@ -69,7 +69,21 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "get_current_datetime",
-        "description": "Get the current date and time in the user's timezone.",
+        "description": "Get the current date and time in the user's timezone (IST).",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "get_today_schedule",
+        "description": (
+            "Read today's schedule from schedule.md. "
+            "Contains a '## Recurring' section (daily routines that persist) "
+            "and a '## Today' section (overwritten each day with new entries). "
+            "Use during nudges to check if the user is busy."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {},
@@ -119,9 +133,9 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "memory_search",
         "description": (
-            "Semantic search across past reflections, notes and conversations "
-            "stored in MemPalace. Returns the most relevant snippets. "
-            "Use instead of reading MEMORY.md for historical context."
+            "Semantic search across MemPalace (ChromaDB). Searches: schedules, reflections, "
+            "skills, user profile, goals, preferences, notes. "
+            "Returns the most relevant snippets by meaning, not keyword."
         ),
         "input_schema": {
             "type": "object",
@@ -142,9 +156,10 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "memory_store",
         "description": (
-            "Store a memory in MemPalace for future semantic retrieval. "
-            "Use for reflections, goal updates, preferences — anything worth remembering. "
-            "Do NOT use for ephemeral info (today's schedule, temp notes)."
+            "Store a memory in MemPalace (ChromaDB) for future semantic retrieval. "
+            "Use for: schedules/daily plans (category: event), reflections (category: reflection), "
+            "goal updates (category: goal), preferences (category: preference), skills (category: event). "
+            "Do NOT use for structured data like habit logs or budget — those go to JSON files."
         ),
         "input_schema": {
             "type": "object",

@@ -79,6 +79,8 @@ class ToolExecutor:
                 return self._list_files(tool_input)
             if tool_name == "get_current_datetime":
                 return self._get_current_datetime()
+            if tool_name == "get_today_schedule":
+                return self._get_today_schedule()
             if tool_name == "generate_chart":
                 return self._generate_chart(tool_input)
             if tool_name == "memory_search":
@@ -112,7 +114,23 @@ class ToolExecutor:
     def _get_current_datetime(self) -> str:
         tz = ZoneInfo(self._timezone)
         now = datetime.now(tz=tz)
-        return now.strftime("%Y-%m-%d %H:%M:%S %Z (%A)")
+        return (
+            f"Date: {now.strftime('%Y-%m-%d (%A)')}\n"
+            f"Time: {now.strftime('%I:%M %p')} {self._timezone}\n"
+            f"ISO: {now.isoformat()}"
+        )
+
+    def _get_today_schedule(self) -> str:
+        tz = ZoneInfo(self._timezone)
+        today = datetime.now(tz=tz).strftime("%Y-%m-%d")
+        day_name = datetime.now(tz=tz).strftime("%A")
+
+        try:
+            content = self._sandbox.read_file("schedule.md")
+        except SandboxFileNotFoundError:
+            return f"No schedule found. Use write_file to create schedule.md."
+
+        return f"## Schedule for {today} ({day_name})\n\n{content.strip()}"
 
     def _generate_chart(self, tool_input: dict[str, Any]) -> str:
         if not self._charts_dir:
