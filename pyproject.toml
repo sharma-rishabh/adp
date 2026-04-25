@@ -19,6 +19,7 @@ dependencies = [
 
 [project.scripts]
 planner = "planner_agent.main:run"
+planner-setup = "planner_agent.onboarding:run_onboarding"
 
 [tool.poetry]
 packages = [{include = "planner_agent", from = "src"}]

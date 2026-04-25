@@ -41,7 +41,11 @@ def _configure_logging() -> None:
 async def  _async_main() -> None:
     """Assemble the application graph and run the Telegram adapter."""
     load_dotenv()
-    config = AppConfig.from_env()
+    config = AppConfig.from_file()
+
+    # Seed sandbox with instruction templates if missing
+    from .config import seed_sandbox
+    seed_sandbox(config.sandbox_path)
 
     sandbox = SandboxFileManager(sandbox_root=config.sandbox_path)
     charts_dir = str(Path(config.sandbox_path) / "charts")
