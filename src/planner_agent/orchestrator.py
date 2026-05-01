@@ -133,6 +133,12 @@ class Orchestrator:
 
         if len(history) > self._history_limit:
             overflow = len(history) - self._history_limit
+            trimmed = history[:overflow]
+
+            # Archive trimmed messages to MemPalace before discarding
+            if self._mempalace:
+                self._mempalace.store_conversation(trimmed, user_id)
+
             self._conversations[user_id] = history[overflow:]
             logger.debug(
                 "Trimmed %d messages from history for user=%s",

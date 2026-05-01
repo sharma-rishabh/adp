@@ -11,7 +11,7 @@ import pytest
 from planner_agent.adapters.base import IncomingMessage
 from planner_agent.orchestrator import Orchestrator
 from planner_agent.token_tracker import TokenTracker
-from tests.fakes import FakeAgent, FakeSandbox
+from tests.fakes import FakeAgent, FakeMemPalace, FakeSandbox
 
 _SYSTEM_PROMPT = "You are a test planner."
 
@@ -152,5 +152,55 @@ class TestTokenProgressBar:
         reply = await orchestrator.handle_message(_make_message("hi"))
         assert reply.text == "Got it!"
         assert "⚡" not in reply.text
+
+
+class TestConversationArchival:
+    """Tests for archiving trimmed conversations to MemPalace."""
+
+    @pytest.fixture()
+    def mempalace(self) -> FakeMemPalace:
+        return FakeMemPalace()
+
+    @pytest.fixture()
+    def archiving_orchestrator(self, fake_agent, fake_sandbox, mempalace) -> Orchestrator:
+        return Orchestrator(
+            agent=fake_agent,
+            sandbox=fake_sandbox,
+            system_prompt_path="instructions/system_prompt.md",
+            history_limit=6,
+            mempalace=mempalace,
+        )
+
+    @pytest.mark.asyncio
+    async def test_trimmed_messages_stored_in_mempalace(self, archiving_orchestrator, mempalace):
+        # history_limit=6, each exchange=2 messages. After 4 exchanges (8 msgs), trim 2.
+        for i in range(4):
+            await archiving_orchestrator.handle_message(_make_message(f"msg{i}"))
+
+        assert len(mempalace.stored) == 1
+        text, hall, room = mempalace.stored[0]
+        assert "conversation-archive" == room
+        assert "msg0" in text  # oldest message was archived
+
+    @pytest.mark.asyncio
+    async def test_no_archive_when_under_limit(self, archiving_orchestrator, mempalace):
+        # 2 exchanges = 4 messages, under limit of 6
+        for i in range(2):
+            await archiving_orchestrator.handle_message(_make_message(f"msg{i}"))
+
+        assert len(mempalace.stored) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_archive_without_mempalace(self, fake_agent, fake_sandbox):
+        orch = Orchestrator(
+            agent=fake_agent,
+            sandbox=fake_sandbox,
+            system_prompt_path="instructions/system_prompt.md",
+            history_limit=6,
+            mempalace=None,
+        )
+        # Should not raise even when trimming without mempalace
+        for i in range(5):
+            await orch.handle_message(_make_message(f"msg{i}"))
 
 

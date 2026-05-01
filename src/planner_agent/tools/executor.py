@@ -104,7 +104,26 @@ class ToolExecutor:
     def _write_file(self, tool_input: dict[str, Any]) -> str:
         path = tool_input["path"]
         content = tool_input["content"]
+
+        # Archive old schedule in MemPalace before overwriting
+        if path == "schedule.md" and self._mempalace:
+            self._archive_old_schedule()
+
         return self._sandbox.write_file(path, content)
+
+    def _archive_old_schedule(self) -> None:
+        """Read the current schedule.md and store it in MemPalace."""
+        try:
+            old = self._sandbox.read_file("schedule.md")
+            if old and old.strip():
+                # Extract date from "## Today (YYYY-MM-DD)" if present
+                import re
+                match = re.search(r"## Today\s*\((\d{4}-\d{2}-\d{2})\)", old)
+                sched_date = match.group(1) if match else None
+                self._mempalace.store_schedule(old, schedule_date=sched_date)  # type: ignore[union-attr]
+                logger.info("Archived old schedule to MemPalace")
+        except SandboxFileNotFoundError:
+            pass  # Nothing to archive
 
     def _list_files(self, tool_input: dict[str, Any]) -> str:
         directory = tool_input.get("directory", ".")

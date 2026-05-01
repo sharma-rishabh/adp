@@ -15,7 +15,7 @@ import pytest
 
 from planner_agent.exceptions import AgentToolExecutionError
 from planner_agent.tools.executor import ToolExecutor
-from tests.fakes import FakeSandbox
+from tests.fakes import FakeMemPalace, FakeSandbox
 
 
 @pytest.fixture()
@@ -174,4 +174,53 @@ class TestUnknownTool:
     def test_unknown_tool_raises(self, executor):
         with pytest.raises(AgentToolExecutionError, match="Unknown tool"):
             executor.execute("delete_everything", {})
+
+
+class TestScheduleArchival:
+    """Tests for archiving old schedule to MemPalace before overwriting."""
+
+    def test_write_schedule_archives_old_to_mempalace(self):
+        old_schedule = "## Recurring\n- Gym 7-9am\n\n## Today (2026-04-30)\n- Pairing 10-12"
+        sandbox = FakeSandbox(files={"schedule.md": old_schedule})
+        mp = FakeMemPalace()
+        executor = ToolExecutor(sandbox=sandbox, timezone="UTC", mempalace=mp)
+
+        executor.execute("write_file", {"path": "schedule.md", "content": "## Today (2026-05-01)\n- New day"})
+
+        assert len(mp.stored) == 1
+        text, hall, room = mp.stored[0]
+        assert "2026-04-30" in text
+        assert hall == "hall_events"
+        assert room == "schedule-archive"
+
+    def test_write_schedule_without_mempalace_is_safe(self):
+        sandbox = FakeSandbox(files={"schedule.md": "old"})
+        executor = ToolExecutor(sandbox=sandbox, timezone="UTC", mempalace=None)
+        # Should not raise
+        executor.execute("write_file", {"path": "schedule.md", "content": "new"})
+
+    def test_write_schedule_no_existing_file_is_safe(self):
+        sandbox = FakeSandbox(files={})
+        mp = FakeMemPalace()
+        executor = ToolExecutor(sandbox=sandbox, timezone="UTC", mempalace=mp)
+        executor.execute("write_file", {"path": "schedule.md", "content": "new"})
+        # No old file to archive
+        assert len(mp.stored) == 0
+
+    def test_write_non_schedule_file_does_not_archive(self):
+        sandbox = FakeSandbox(files={"schedule.md": "old schedule"})
+        mp = FakeMemPalace()
+        executor = ToolExecutor(sandbox=sandbox, timezone="UTC", mempalace=mp)
+        executor.execute("write_file", {"path": "notes/test.md", "content": "hello"})
+        assert len(mp.stored) == 0
+
+    def test_archive_extracts_date_from_today_header(self):
+        sandbox = FakeSandbox(files={"schedule.md": "## Today (2026-04-28)\n- Work"})
+        mp = FakeMemPalace()
+        executor = ToolExecutor(sandbox=sandbox, timezone="UTC", mempalace=mp)
+        executor.execute("write_file", {"path": "schedule.md", "content": "new"})
+
+        text, _, _ = mp.stored[0]
+        assert "Schedule 2026-04-28" in text
+
 

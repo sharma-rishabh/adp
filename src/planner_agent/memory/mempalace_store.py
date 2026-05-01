@@ -150,6 +150,30 @@ class MemPalaceStore:
         """Store a preference or habit note."""
         self.store(note, hall=HALL_PREFERENCES, room="habits")
 
+    def store_schedule(self, schedule_content: str, schedule_date: str | None = None) -> None:
+        """Archive a day's schedule before overwriting.
+
+        Args:
+            schedule_content: The full schedule text to archive.
+            schedule_date: Date label (e.g. '2026-05-01'). Defaults to today.
+        """
+        label = schedule_date or date.today().isoformat()
+        dated = f"[Schedule {label}] {schedule_content}"
+        self.store(dated, hall=HALL_EVENTS, room="schedule-archive")
+
+    def store_conversation(self, messages: list[dict], user_id: str) -> None:
+        """Archive a batch of conversation messages before trimming.
+
+        Args:
+            messages: List of ``{"role": ..., "content": ...}`` dicts.
+            user_id: The user whose conversation is being archived.
+        """
+        if not messages:
+            return
+        lines = [f"{m['role'].upper()}: {m['content']}" for m in messages]
+        text = f"[{date.today().isoformat()}] Conversation (user={user_id}):\n" + "\n".join(lines)
+        self.store(text, hall=HALL_EVENTS, room="conversation-archive")
+
     # ------------------------------------------------------------------
     # Formatting
     # ------------------------------------------------------------------
