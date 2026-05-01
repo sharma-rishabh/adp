@@ -43,10 +43,11 @@ class AppConfig:
     claude_model: str = "claude-haiku-4-5-20251001"
     max_agent_turns: int = 10
     timezone: str = "UTC"
-    heartbeat_interval_minutes: int = 60
+    heartbeat_interval_minutes: int = 2
     daily_token_budget: int = 100000
     use_mempalace: bool = True
     system_prompt_path: str = "instructions/system_prompt.md"
+    eod_reflection_time: str = "22:30"  # HH:MM in user's timezone
 
     @classmethod
     def from_file(cls, config_path: Path | None = None) -> AppConfig:
@@ -118,6 +119,8 @@ class AppConfig:
 
         daily_token_budget = _parse_int(cfg, "daily_token_budget", 100000)
 
+        eod_reflection_time = str(cfg.get("eod_reflection_time", "22:30"))
+
         return cls(
             anthropic_api_key=anthropic_api_key,
             telegram_bot_token=telegram_bot_token,
@@ -130,6 +133,7 @@ class AppConfig:
             heartbeat_interval_minutes=heartbeat_interval_minutes,
             daily_token_budget=daily_token_budget,
             use_mempalace=use_mempalace,
+            eod_reflection_time=eod_reflection_time,
         )
 
     # Keep backward compat — from_env delegates to from_file
@@ -165,6 +169,7 @@ def generate_default_config(
         "daily_token_budget": daily_token_budget,
         "use_mempalace": use_mempalace,
         "system_prompt_path": "instructions/system_prompt.md",
+        "eod_reflection_time": "22:30",
     }
 
 
@@ -201,10 +206,12 @@ def seed_sandbox(sandbox_path: str) -> None:
     # Ensure schedule.md exists with recurring section
     schedule_file = sandbox / "schedule.md"
     if not schedule_file.exists():
+        from datetime import datetime
+        today = datetime.now().strftime("%Y-%m-%d")
         schedule_file.write_text(
             "## Recurring\n\n"
             "<!-- Add your daily routines here -->\n\n"
-            "## Today\n\n"
+            f"## Today ({today})\n\n"
             "<!-- Today's schedule will be written here -->\n"
         )
 

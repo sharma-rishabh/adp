@@ -105,6 +105,8 @@ async def  _async_main() -> None:
         adapter=adapter,
         user_ids=config.allowed_user_ids,
         interval_minutes=config.heartbeat_interval_minutes,
+        timezone=config.timezone,
+        eod_reflection_time=config.eod_reflection_time,
     )
     heartbeat.start()
 

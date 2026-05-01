@@ -122,15 +122,40 @@ class ToolExecutor:
 
     def _get_today_schedule(self) -> str:
         tz = ZoneInfo(self._timezone)
-        today = datetime.now(tz=tz).strftime("%Y-%m-%d")
-        day_name = datetime.now(tz=tz).strftime("%A")
+        now = datetime.now(tz=tz)
+        today = now.strftime("%Y-%m-%d")
+        day_name = now.strftime("%A")
+        current_time = now.strftime("%I:%M %p")
 
         try:
             content = self._sandbox.read_file("schedule.md")
         except SandboxFileNotFoundError:
-            return f"No schedule found. Use write_file to create schedule.md."
+            return (
+                f"Current date: {today} ({day_name}), Time: {current_time} {self._timezone}\n\n"
+                f"No schedule found. Use write_file to create schedule.md."
+            )
 
-        return f"## Schedule for {today} ({day_name})\n\n{content.strip()}"
+        # Check if ## Today section has a date and whether it matches today
+        stale_warning = ""
+        import re
+        today_match = re.search(r"## Today\s*\((\d{4}-\d{2}-\d{2})\)", content)
+        if today_match:
+            schedule_date = today_match.group(1)
+            if schedule_date != today:
+                stale_warning = (
+                    f"\n⚠️ The '## Today' section is from {schedule_date} — "
+                    f"it is OUTDATED. Ask the user for today's schedule before nudging.\n"
+                )
+        elif "## Today" in content:
+            stale_warning = (
+                "\n⚠️ The '## Today' section has no date — it may be outdated. "
+                "Ask the user to confirm before relying on it.\n"
+            )
+
+        return (
+            f"Current date: {today} ({day_name}), Time: {current_time} {self._timezone}\n"
+            f"{stale_warning}\n{content.strip()}"
+        )
 
     def _generate_chart(self, tool_input: dict[str, Any]) -> str:
         if not self._charts_dir:

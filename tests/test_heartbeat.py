@@ -15,7 +15,8 @@ from planner_agent.heartbeat import Heartbeat
 class TestHeartbeatLifecycle:
     """Tests for start/stop behaviour."""
 
-    def test_start_with_zero_interval_does_not_create_task(self):
+    @pytest.mark.asyncio
+    async def test_start_with_zero_interval_does_not_create_nudge_task(self):
         hb = Heartbeat(
             orchestrator=MagicMock(),
             adapter=MagicMock(),
@@ -24,6 +25,9 @@ class TestHeartbeatLifecycle:
         )
         hb.start()
         assert hb._task is None
+        # EOD task still starts even when nudges are disabled
+        assert hb._eod_task is not None
+        hb._eod_task.cancel()
 
     @pytest.mark.asyncio
     async def test_stop_without_start_is_safe(self):
@@ -62,7 +66,8 @@ class TestCheckIn:
         # Orchestrator was called with the nudge trigger
         mock_orchestrator.handle_message.assert_called_once()
         incoming = mock_orchestrator.handle_message.call_args[0][0]
-        assert incoming.text == "[heartbeat-nudge]"
+        assert incoming.text.startswith("[heartbeat-nudge]")
+        assert "Current time:" in incoming.text
         assert incoming.user_id == "user1"
         assert incoming.adapter_name == "heartbeat"
 
@@ -153,3 +158,74 @@ class TestCheckIn:
         # Should not raise
         await hb._check_in()
         mock_adapter.send_proactive.assert_not_called()
+
+
+class TestEodReflection:
+    """Tests for _trigger_reflection and EOD scheduling."""
+
+    @pytest.mark.asyncio
+    async def test_delivers_reflection_when_agent_responds(self):
+        mock_outgoing = MagicMock()
+        mock_outgoing.text = "🌙 Time for your evening reflection!"
+
+        mock_orchestrator = MagicMock()
+        mock_orchestrator.handle_message = AsyncMock(return_value=mock_outgoing)
+
+        mock_adapter = MagicMock()
+        mock_adapter.send_proactive = AsyncMock()
+
+        hb = Heartbeat(
+            orchestrator=mock_orchestrator,
+            adapter=mock_adapter,
+            user_ids=["user1"],
+            interval_minutes=60,
+        )
+
+        await hb._trigger_reflection()
+
+        incoming = mock_orchestrator.handle_message.call_args[0][0]
+        assert incoming.text.startswith("[eod-reflection]")
+        assert "Current time:" in incoming.text
+        assert incoming.adapter_name == "eod-reflection"
+        mock_adapter.send_proactive.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_skips_reflection_when_agent_says_skip(self):
+        mock_outgoing = MagicMock()
+        mock_outgoing.text = "[skip]"
+
+        mock_orchestrator = MagicMock()
+        mock_orchestrator.handle_message = AsyncMock(return_value=mock_outgoing)
+
+        mock_adapter = MagicMock()
+        mock_adapter.send_proactive = AsyncMock()
+
+        hb = Heartbeat(
+            orchestrator=mock_orchestrator,
+            adapter=mock_adapter,
+            user_ids=["user1"],
+            interval_minutes=60,
+        )
+
+        await hb._trigger_reflection()
+        mock_adapter.send_proactive.assert_not_called()
+
+    def test_seconds_until_eod_is_positive(self):
+        hb = Heartbeat(
+            orchestrator=MagicMock(),
+            adapter=MagicMock(),
+            user_ids=["123"],
+            interval_minutes=60,
+            timezone="Asia/Kolkata",
+            eod_reflection_time="22:30",
+        )
+        seconds = hb._seconds_until_eod()
+        assert seconds > 0
+        assert seconds <= 86400  # at most 24 hours
+
+    def test_parse_time(self):
+        from datetime import time as dt_time
+        assert Heartbeat._parse_time("22:30") == dt_time(22, 30)
+        assert Heartbeat._parse_time("09:00") == dt_time(9, 0)
+
+

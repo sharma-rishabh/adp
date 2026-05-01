@@ -61,8 +61,7 @@ class MemPalaceStore:
     def search(
         self,
         query: str,
-        n_results: int = 3,
-        hall: str | None = None,
+        n_results: int = 3
     ) -> list[str]:
         """Semantic search across stored memories.
 
@@ -79,14 +78,12 @@ class MemPalaceStore:
             from mempalace.searcher import search_memories
 
             where: dict = {"wing": self._wing}
-            if hall:
-                where["hall"] = hall
 
             results = search_memories(
                 query=query,
                 n_results=n_results,
                 palace_path=self._palace_str,
-                where=where,
+                wing=self._wing
             )
             return [r.get("document", "") for r in results if r.get("document")]
         except Exception as e:

@@ -66,6 +66,7 @@ class Orchestrator:
             An ``OutgoingMessage`` ready for the adapter to send.
         """
         # Handle slash commands that bypass the agent (zero tokens)
+        logger.info(f">>> {incoming.text}")
         command_response = self._handle_command(incoming)
         if command_response is not None:
             return command_response
@@ -84,7 +85,7 @@ class Orchestrator:
             conversation_history=history,
             system_prompt=system_prompt,
         )
-
+        logger.info(f">>>> {response.text}")
         self._update_history(incoming.user_id, incoming.text, response)
         self._log_usage(incoming.user_id, response)
 
