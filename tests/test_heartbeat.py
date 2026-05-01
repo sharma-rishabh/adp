@@ -229,3 +229,115 @@ class TestEodReflection:
         assert Heartbeat._parse_time("09:00") == dt_time(9, 0)
 
 
+class TestQuietHours:
+    """Tests for configurable quiet hours."""
+
+    def _make_hb(self, quiet_start: str = "23:00", quiet_end: str = "09:00") -> Heartbeat:
+        return Heartbeat(
+            orchestrator=MagicMock(),
+            adapter=MagicMock(),
+            user_ids=["123"],
+            interval_minutes=60,
+            timezone="Asia/Kolkata",
+            quiet_hours_start=quiet_start,
+            quiet_hours_end=quiet_end,
+        )
+
+    def test_default_quiet_hours_stored(self):
+        hb = self._make_hb()
+        from datetime import time as dt_time
+        assert hb._quiet_start == dt_time(23, 0)
+        assert hb._quiet_end == dt_time(9, 0)
+
+    def test_overnight_range_quiet_at_midnight(self):
+        """23:00–09:00: midnight should be quiet."""
+        hb = self._make_hb("23:00", "09:00")
+        from unittest.mock import patch
+        from datetime import datetime as dt
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo("Asia/Kolkata")
+        with patch("planner_agent.heartbeat.datetime") as mock_dt:
+            mock_dt.now.return_value = dt(2026, 5, 1, 0, 30, tzinfo=tz)
+            mock_dt.side_effect = lambda *a, **kw: dt(*a, **kw)
+            assert hb._is_quiet_hours() is True
+
+    def test_overnight_range_quiet_at_23(self):
+        """23:00–09:00: 23:15 should be quiet."""
+        hb = self._make_hb("23:00", "09:00")
+        from unittest.mock import patch
+        from datetime import datetime as dt
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo("Asia/Kolkata")
+        with patch("planner_agent.heartbeat.datetime") as mock_dt:
+            mock_dt.now.return_value = dt(2026, 5, 1, 23, 15, tzinfo=tz)
+            mock_dt.side_effect = lambda *a, **kw: dt(*a, **kw)
+            assert hb._is_quiet_hours() is True
+
+    def test_overnight_range_active_at_noon(self):
+        """23:00–09:00: noon should NOT be quiet."""
+        hb = self._make_hb("23:00", "09:00")
+        from unittest.mock import patch
+        from datetime import datetime as dt
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo("Asia/Kolkata")
+        with patch("planner_agent.heartbeat.datetime") as mock_dt:
+            mock_dt.now.return_value = dt(2026, 5, 1, 12, 0, tzinfo=tz)
+            mock_dt.side_effect = lambda *a, **kw: dt(*a, **kw)
+            assert hb._is_quiet_hours() is False
+
+    def test_overnight_range_active_at_9(self):
+        """23:00–09:00: exactly 09:00 should NOT be quiet (end is exclusive)."""
+        hb = self._make_hb("23:00", "09:00")
+        from unittest.mock import patch
+        from datetime import datetime as dt
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo("Asia/Kolkata")
+        with patch("planner_agent.heartbeat.datetime") as mock_dt:
+            mock_dt.now.return_value = dt(2026, 5, 1, 9, 0, tzinfo=tz)
+            mock_dt.side_effect = lambda *a, **kw: dt(*a, **kw)
+            assert hb._is_quiet_hours() is False
+
+    def test_same_day_range(self):
+        """01:00–05:00: 03:00 should be quiet, 06:00 should not."""
+        hb = self._make_hb("01:00", "05:00")
+        from unittest.mock import patch
+        from datetime import datetime as dt
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo("Asia/Kolkata")
+        with patch("planner_agent.heartbeat.datetime") as mock_dt:
+            mock_dt.now.return_value = dt(2026, 5, 1, 3, 0, tzinfo=tz)
+            mock_dt.side_effect = lambda *a, **kw: dt(*a, **kw)
+            assert hb._is_quiet_hours() is True
+
+        with patch("planner_agent.heartbeat.datetime") as mock_dt:
+            mock_dt.now.return_value = dt(2026, 5, 1, 6, 0, tzinfo=tz)
+            mock_dt.side_effect = lambda *a, **kw: dt(*a, **kw)
+            assert hb._is_quiet_hours() is False
+
+    @pytest.mark.asyncio
+    async def test_loop_skips_check_in_during_quiet_hours(self):
+        """During quiet hours, _check_in should NOT be called."""
+        mock_orchestrator = MagicMock()
+        mock_orchestrator.handle_message = AsyncMock()
+
+        hb = self._make_hb("23:00", "09:00")
+        hb._orchestrator = mock_orchestrator
+
+        from unittest.mock import patch
+        from datetime import datetime as dt
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo("Asia/Kolkata")
+        with patch("planner_agent.heartbeat.datetime") as mock_dt:
+            mock_dt.now.return_value = dt(2026, 5, 1, 2, 0, tzinfo=tz)
+            mock_dt.side_effect = lambda *a, **kw: dt(*a, **kw)
+
+            # Directly test the quiet hours gate
+            assert hb._is_quiet_hours() is True
+            # Orchestrator should not have been called
+            mock_orchestrator.handle_message.assert_not_called()

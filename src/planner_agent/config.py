@@ -48,6 +48,8 @@ class AppConfig:
     use_mempalace: bool = True
     system_prompt_path: str = "instructions/system_prompt.md"
     eod_reflection_time: str = "22:30"  # HH:MM in user's timezone
+    quiet_hours_start: str = "23:00"  # HH:MM — heartbeat paused from this time
+    quiet_hours_end: str = "09:00"    # HH:MM — heartbeat resumes at this time
 
     @classmethod
     def from_file(cls, config_path: Path | None = None) -> AppConfig:
@@ -120,6 +122,8 @@ class AppConfig:
         daily_token_budget = _parse_int(cfg, "daily_token_budget", 100000)
 
         eod_reflection_time = str(cfg.get("eod_reflection_time", "22:30"))
+        quiet_hours_start = str(cfg.get("quiet_hours_start", "23:00"))
+        quiet_hours_end = str(cfg.get("quiet_hours_end", "09:00"))
 
         return cls(
             anthropic_api_key=anthropic_api_key,
@@ -134,6 +138,8 @@ class AppConfig:
             daily_token_budget=daily_token_budget,
             use_mempalace=use_mempalace,
             eod_reflection_time=eod_reflection_time,
+            quiet_hours_start=quiet_hours_start,
+            quiet_hours_end=quiet_hours_end,
         )
 
     # Keep backward compat — from_env delegates to from_file
@@ -170,6 +176,8 @@ def generate_default_config(
         "use_mempalace": use_mempalace,
         "system_prompt_path": "instructions/system_prompt.md",
         "eod_reflection_time": "22:30",
+        "quiet_hours_start": "23:00",
+        "quiet_hours_end": "09:00",
     }
 
 

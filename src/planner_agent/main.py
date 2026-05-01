@@ -107,6 +107,8 @@ async def  _async_main() -> None:
         interval_minutes=config.heartbeat_interval_minutes,
         timezone=config.timezone,
         eod_reflection_time=config.eod_reflection_time,
+        quiet_hours_start=config.quiet_hours_start,
+        quiet_hours_end=config.quiet_hours_end,
     )
     heartbeat.start()
 

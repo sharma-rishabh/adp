@@ -51,6 +51,8 @@ class Heartbeat:
         interval_minutes: int = _DEFAULT_INTERVAL_MINUTES,
         timezone: str = "Asia/Kolkata",
         eod_reflection_time: str = "22:30",
+        quiet_hours_start: str = "23:00",
+        quiet_hours_end: str = "09:00",
     ) -> None:
         self._orchestrator = orchestrator
         self._adapter = adapter
@@ -58,6 +60,8 @@ class Heartbeat:
         self._interval = interval_minutes * 60  # seconds
         self._timezone = timezone
         self._eod_time = self._parse_time(eod_reflection_time)
+        self._quiet_start = self._parse_time(quiet_hours_start)
+        self._quiet_end = self._parse_time(quiet_hours_end)
         self._task: asyncio.Task | None = None
         self._eod_task: asyncio.Task | None = None
         self._last_nudge_sent: dict[str, datetime | None] = {uid: None for uid in user_ids}
@@ -99,10 +103,30 @@ class Heartbeat:
                     pass
         logger.info("Heartbeat stopped")
 
+    def _is_quiet_hours(self) -> bool:
+        """Return True if current time is within quiet hours.
+
+        Handles overnight ranges (e.g. 23:00–09:00) and same-day ranges.
+        """
+        tz = ZoneInfo(self._timezone)
+        now = datetime.now(tz=tz).time()
+        start = self._quiet_start
+        end = self._quiet_end
+
+        if start <= end:
+            # Same-day range, e.g. 01:00–05:00
+            return start <= now < end
+        else:
+            # Overnight range, e.g. 23:00–09:00
+            return now >= start or now < end
+
     async def _loop(self) -> None:
         """Sleep for the interval, then check in with the agent."""
         while True:
             await asyncio.sleep(self._interval)
+            if self._is_quiet_hours():
+                logger.debug("Quiet hours (11 PM–9 AM) — skipping heartbeat")
+                continue
             await self._check_in()
 
     async def _eod_loop(self) -> None:
