@@ -177,10 +177,11 @@ class TestConversationArchival:
         for i in range(4):
             await archiving_orchestrator.handle_message(_make_message(f"msg{i}"))
 
-        assert len(mempalace.stored) == 1
+        # Every exchange is stored immediately (4 exchanges = 4 stores)
+        assert len(mempalace.stored) == 4
         text, hall, room = mempalace.stored[0]
         assert "conversation-archive" == room
-        assert "msg0" in text  # oldest message was archived
+        assert "msg0" in text
 
     @pytest.mark.asyncio
     async def test_no_archive_when_under_limit(self, archiving_orchestrator, mempalace):
@@ -188,7 +189,8 @@ class TestConversationArchival:
         for i in range(2):
             await archiving_orchestrator.handle_message(_make_message(f"msg{i}"))
 
-        assert len(mempalace.stored) == 0
+        # Every exchange is stored (2 stores)
+        assert len(mempalace.stored) == 2
 
     @pytest.mark.asyncio
     async def test_no_archive_without_mempalace(self, fake_agent, fake_sandbox):

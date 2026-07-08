@@ -224,3 +224,40 @@ class TestScheduleArchival:
         assert "Schedule 2026-04-28" in text
 
 
+class TestAppendFile:
+    def test_append_creates_new_file(self):
+        sandbox = FakeSandbox(files={})
+        executor = ToolExecutor(sandbox=sandbox, timezone="UTC")
+        result = executor.execute("append_file", {"path": "budget/2026-05.json", "content": '{"amount":100}'})
+        assert "Appended" in result
+        assert '{"amount":100}' in sandbox.files["budget/2026-05.json"]
+
+    def test_append_preserves_existing_content(self):
+        sandbox = FakeSandbox(files={"budget/2026-05.json": '{"amount":50}\n'})
+        executor = ToolExecutor(sandbox=sandbox, timezone="UTC")
+        executor.execute("append_file", {"path": "budget/2026-05.json", "content": '{"amount":100}'})
+        content = sandbox.files["budget/2026-05.json"]
+        assert '{"amount":50}' in content
+        assert '{"amount":100}' in content
+
+
+class TestBudgetWriteProtection:
+    def test_write_file_refuses_overwrite_on_existing_budget(self):
+        sandbox = FakeSandbox(files={"budget/2026-05.json": '{"amount":50}\n'})
+        executor = ToolExecutor(sandbox=sandbox, timezone="UTC")
+        result = executor.execute("write_file", {"path": "budget/2026-05.json", "content": '{"amount":100}'})
+        assert "append_file" in result
+        # Original data must be preserved
+        assert '{"amount":50}' in sandbox.files["budget/2026-05.json"]
+
+    def test_write_file_allows_new_budget(self):
+        sandbox = FakeSandbox(files={})
+        executor = ToolExecutor(sandbox=sandbox, timezone="UTC")
+        result = executor.execute("write_file", {"path": "budget/2026-05.json", "content": '{"amount":100}'})
+        assert "Written" in result
+
+    def test_write_file_refuses_overwrite_on_existing_habit(self):
+        sandbox = FakeSandbox(files={"habits/guitar.json": '{"date":"2026-05-01"}\n'})
+        executor = ToolExecutor(sandbox=sandbox, timezone="UTC")
+        result = executor.execute("write_file", {"path": "habits/guitar.json", "content": "new"})
+        assert "append_file" in result

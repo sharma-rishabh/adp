@@ -35,7 +35,8 @@ TOOLS: list[dict[str, Any]] = [
         "description": (
             "Write or overwrite a file in the sandbox. "
             "Use this to create/update any file including instructions, "
-            "daily plans, reflections, notes, and config."
+            "daily plans, reflections, notes, and config. "
+            "⚠️ NEVER use this for budget or habit JSON files — use append_file instead."
         ),
         "input_schema": {
             "type": "object",
@@ -47,6 +48,29 @@ TOOLS: list[dict[str, Any]] = [
                 "content": {
                     "type": "string",
                     "description": "Full file content to write.",
+                },
+            },
+            "required": ["path", "content"],
+        },
+    },
+    {
+        "name": "append_file",
+        "description": (
+            "Append a line to an existing file without overwriting. "
+            "Use this for budget JSON files (budget/YYYY-MM.json) and habit logs "
+            "(habits/<name>.json) to add new entries without losing existing data. "
+            "Creates the file if it doesn't exist."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Relative path within the sandbox (e.g. 'budget/2026-05.json').",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Line to append (e.g. a single JSON object for NDJSON).",
                 },
             },
             "required": ["path", "content"],

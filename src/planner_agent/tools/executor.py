@@ -75,6 +75,8 @@ class ToolExecutor:
                 return self._read_file(tool_input)
             if tool_name == "write_file":
                 return self._write_file(tool_input)
+            if tool_name == "append_file":
+                return self._append_file(tool_input)
             if tool_name == "list_files":
                 return self._list_files(tool_input)
             if tool_name == "get_current_datetime":
@@ -105,6 +107,19 @@ class ToolExecutor:
         path = tool_input["path"]
         content = tool_input["content"]
 
+        # Protect budget and habit files from accidental overwrite
+        if path.startswith("budget/") or path.startswith("habits/"):
+            if path.endswith(".json"):
+                try:
+                    existing = self._sandbox.read_file(path)
+                    if existing and existing.strip():
+                        return (
+                            f"⚠️ Refused: '{path}' already has data. "
+                            f"Use append_file to add entries without losing existing data."
+                        )
+                except SandboxFileNotFoundError:
+                    pass  # File doesn't exist yet — safe to create
+
         # Archive old schedule in MemPalace before overwriting
         if path == "schedule.md" and self._mempalace:
             self._archive_old_schedule()
@@ -124,6 +139,19 @@ class ToolExecutor:
                 logger.info("Archived old schedule to MemPalace")
         except SandboxFileNotFoundError:
             pass  # Nothing to archive
+
+    def _append_file(self, tool_input: dict[str, Any]) -> str:
+        """Append content to a file without overwriting existing data."""
+        path = tool_input["path"]
+        content = tool_input["content"]
+        try:
+            existing = self._sandbox.read_file(path)
+        except SandboxFileNotFoundError:
+            existing = ""
+        # Append with newline separator
+        new_content = existing.rstrip("\n") + "\n" + content + "\n" if existing.strip() else content + "\n"
+        self._sandbox.write_file(path, new_content)
+        return f"Appended to {path}."
 
     def _list_files(self, tool_input: dict[str, Any]) -> str:
         directory = tool_input.get("directory", ".")

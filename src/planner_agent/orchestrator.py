@@ -122,6 +122,9 @@ class Orchestrator:
     ) -> None:
         """Append the latest exchange and trim if over the limit.
 
+        Also persists every exchange to MemPalace so conversations
+        survive bot restarts and can be recalled semantically.
+
         Args:
             user_id: The user's identifier.
             user_text: The user's message text.
@@ -131,13 +134,18 @@ class Orchestrator:
         history.append({"role": "user", "content": user_text})
         history.append({"role": "assistant", "content": response.text})
 
+        # Persist every exchange immediately (survives restarts)
+        if self._mempalace and not user_text.startswith("/"):
+            self._mempalace.store_conversation(
+                [
+                    {"role": "user", "content": user_text},
+                    {"role": "assistant", "content": response.text},
+                ],
+                user_id,
+            )
+
         if len(history) > self._history_limit:
             overflow = len(history) - self._history_limit
-            trimmed = history[:overflow]
-
-            # Archive trimmed messages to MemPalace before discarding
-            if self._mempalace:
-                self._mempalace.store_conversation(trimmed, user_id)
 
             self._conversations[user_id] = history[overflow:]
             logger.debug(
