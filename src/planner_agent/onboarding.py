@@ -75,14 +75,15 @@ def run_onboarding() -> None:
     sandbox_path = _ask("Sandbox path", str(Path.home() / ".adp" / "sandbox"))
     timezone = _ask("Timezone (IANA)", "Asia/Kolkata")
     claude_model = _ask("Claude model", "claude-haiku-4-5-20251001")
-    heartbeat = int(_ask("Heartbeat interval (minutes, 0=off)", "20"))
+    nudge_times_raw = _ask("Nudge times (comma-separated HH:MM, blank=off)", "09:00,13:00,18:00")
+    nudge_times = [t.strip() for t in nudge_times_raw.split(",") if t.strip()]
     token_budget = int(_ask("Daily token budget", "100000"))
     use_mempalace = _ask_bool("Enable MemPalace semantic memory?", True)
 
     config_dict = generate_default_config(
         sandbox_path=sandbox_path,
         timezone=timezone,
-        heartbeat_interval_minutes=heartbeat,
+        nudge_times=nudge_times,
         daily_token_budget=token_budget,
         claude_model=claude_model,
         use_mempalace=use_mempalace,

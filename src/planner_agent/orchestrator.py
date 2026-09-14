@@ -8,16 +8,37 @@ edits take effect immediately.
 from __future__ import annotations
 
 import logging
+import re
+from datetime import UTC, datetime, timedelta
 
 from .adapters.base import IncomingMessage, OutgoingMessage
 from .agents.base import AgentResponse, BaseAgent
+from .exceptions import SandboxFileNotFoundError
 from .memory.mempalace_store import MemPalaceStore
 from .sandbox.base import BaseSandbox
 from .token_tracker import TokenTracker
+from .triggers import EOD_ADAPTER, EOD_TRIGGER, HEARTBEAT_ADAPTER, NUDGE_TRIGGER, PAUSED_UNTIL_FILE
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_HISTORY_LIMIT = 50  # max message pairs kept per user
+_REFLECTION_WINDOW = timedelta(minutes=45)  # keep a reflection on its model across follow-ups
+_SYNTHETIC_ADAPTERS = (HEARTBEAT_ADAPTER, EOD_ADAPTER)  # not real user activity
+# Digit cap keeps `int(...)` construction of the timedelta below its
+# internal overflow point; the day cap below then rejects anything
+# unreasonably long with the same "usage" message as a malformed input.
+_PAUSE_DURATION_RE = re.compile(r"^(\d{1,4})\s*([dhm])$")
+_MAX_PAUSE_DURATION = timedelta(days=30)
+
+
+def _parse_pause_duration(text: str) -> timedelta | None:
+    """Parse a duration like '3d', '12h', '90m'; None if malformed or over 30 days."""
+    match = _PAUSE_DURATION_RE.match(text.strip().lower())
+    if not match:
+        return None
+    amount, unit = int(match.group(1)), match.group(2)
+    duration = {"d": timedelta(days=amount), "h": timedelta(hours=amount), "m": timedelta(minutes=amount)}[unit]
+    return duration if duration <= _MAX_PAUSE_DURATION else None
 
 
 class Orchestrator:
@@ -37,6 +58,9 @@ class Orchestrator:
         token_tracker: Optional tracker for daily token budget display.
         history_limit: Maximum number of messages (user+assistant)
             retained per user.  Oldest messages are trimmed first.
+        reflection_agent: Optional agent used for EOD reflections (and
+            their follow-up turns).  When ``None``, all messages use
+            ``agent``.
     """
 
     def __init__(
@@ -47,6 +71,7 @@ class Orchestrator:
         token_tracker: TokenTracker | None = None,
         history_limit: int = _DEFAULT_HISTORY_LIMIT,
         mempalace: MemPalaceStore | None = None,
+        reflection_agent: BaseAgent | None = None,
     ) -> None:
         self._agent = agent
         self._sandbox = sandbox
@@ -54,7 +79,10 @@ class Orchestrator:
         self._token_tracker = token_tracker
         self._history_limit = history_limit
         self._mempalace = mempalace
+        self._reflection_agent = reflection_agent
         self._conversations: dict[str, list[dict]] = {}
+        self._reflection_until: dict[str, datetime] = {}
+        self._last_user_activity: dict[str, datetime] = {}
 
     async def handle_message(self, incoming: IncomingMessage) -> OutgoingMessage:
         """Process an incoming message and return the agent's reply.
@@ -65,6 +93,9 @@ class Orchestrator:
         Returns:
             An ``OutgoingMessage`` ready for the adapter to send.
         """
+        if incoming.adapter_name not in _SYNTHETIC_ADAPTERS:
+            self._last_user_activity[incoming.user_id] = incoming.timestamp
+
         # Handle slash commands that bypass the agent (zero tokens)
         logger.info(f">>> {incoming.text}")
         command_response = self._handle_command(incoming)
@@ -80,7 +111,8 @@ class Orchestrator:
         system_prompt = self._load_system_prompt()
         history = self._conversations.get(incoming.user_id, [])
 
-        response = await self._agent.run(
+        agent = self._select_agent(incoming)
+        response = await agent.run(
             user_message=incoming.text,
             conversation_history=history,
             system_prompt=system_prompt,
@@ -113,6 +145,44 @@ class Orchestrator:
             The system prompt text.
         """
         return self._sandbox.read_file(self._system_prompt_path)
+
+    def _select_agent(self, incoming: IncomingMessage) -> BaseAgent:
+        """Choose which agent handles this message.
+
+        EOD reflections run on the reflection agent; nudges and ordinary
+        chat run on the primary agent.  A reflection is multi-turn (ask
+        questions, then process the user's reply), so once one starts, the
+        reflection agent stays selected for follow-up messages within a
+        short window — the whole reflection uses the same model, not just
+        the opening turn.  Falls back to the primary agent when no
+        reflection agent is configured.
+
+        Args:
+            incoming: The message being routed.
+
+        Returns:
+            The agent that should handle ``incoming``.
+        """
+        if self._reflection_agent is None:
+            return self._agent
+
+        user_id = incoming.user_id
+        now = datetime.now(UTC)
+
+        if incoming.text.startswith(EOD_TRIGGER):
+            self._reflection_until[user_id] = now + _REFLECTION_WINDOW
+            logger.info("Routing reflection to reflection agent for user=%s", user_id)
+            return self._reflection_agent
+        if incoming.text.startswith(NUDGE_TRIGGER):
+            return self._agent  # nudges always use the cheaper primary model
+        if now < self._reflection_until.get(user_id, now):
+            # Still inside a reflection exchange — keep it on the same model,
+            # extending the window across each turn.
+            # ponytail: 45-min inactivity window ends the reflection; a reply
+            # after a longer gap falls back to the primary model.
+            self._reflection_until[user_id] = now + _REFLECTION_WINDOW
+            return self._reflection_agent
+        return self._agent
 
     def _update_history(
         self,
@@ -175,6 +245,21 @@ class Orchestrator:
                 ", ".join(response.tool_calls_made),
             )
 
+    def has_replied_since(self, user_id: str, since: datetime) -> bool:
+        """Whether the user sent a real (non-heartbeat, non-EOD) message after ``since``.
+
+        Used by the heartbeat's nudge backoff to detect re-engagement.
+
+        Args:
+            user_id: The user to check.
+            since: The cutoff timestamp.
+
+        Returns:
+            True if the user's last real message is after ``since``.
+        """
+        last = self._last_user_activity.get(user_id)
+        return last is not None and last > since
+
     def clear_history(self, user_id: str) -> None:
         """Clear conversation history for a user.
 
@@ -212,6 +297,9 @@ class Orchestrator:
                 text="🗑️ Conversation history cleared.",
             )
 
+        if text.lower().startswith("/pause"):
+            return self._handle_pause_command(incoming, text)
+
         if text.lower().startswith("/skill"):
             parts = text.split(maxsplit=1)
             if len(parts) < 2 or not parts[1].strip():
@@ -235,4 +323,75 @@ class Orchestrator:
             return OutgoingMessage(user_id=incoming.user_id, text=reply)
 
         return None
+
+    def _handle_pause_command(self, incoming: IncomingMessage, text: str) -> OutgoingMessage:
+        """Handle ``/pause [<duration>|off]`` — suppresses nudges and EOD reflection.
+
+        Persisted to a sandbox file (survives restarts) so the heartbeat,
+        which has no other link to this command, can check it before firing.
+
+        Args:
+            incoming: The originating message (for ``user_id``).
+            text: The full command text, e.g. ``"/pause 3d"``.
+
+        Returns:
+            A status or confirmation ``OutgoingMessage``.
+        """
+        parts = text.split(maxsplit=1)
+        arg = parts[1].strip().lower() if len(parts) > 1 else ""
+
+        if not arg:
+            paused_until = self._read_paused_until()
+            if paused_until and paused_until > datetime.now(UTC):
+                reply = (
+                    f"⏸️ Paused until {paused_until.strftime('%Y-%m-%d %H:%M UTC')}. "
+                    "Send /pause off to resume early."
+                )
+            else:
+                reply = "▶️ Not paused. Usage: /pause <e.g. 3d, 12h, 90m> or /pause off"
+            return OutgoingMessage(user_id=incoming.user_id, text=reply)
+
+        if arg in ("off", "cancel", "resume"):
+            self._sandbox.write_file(PAUSED_UNTIL_FILE, "")
+            return OutgoingMessage(
+                user_id=incoming.user_id,
+                text="▶️ Resumed — nudges and reflections are back on.",
+            )
+
+        duration = _parse_pause_duration(arg)
+        if duration is None:
+            return OutgoingMessage(
+                user_id=incoming.user_id,
+                text="Usage: /pause <e.g. 3d, 12h, 90m> or /pause off",
+            )
+
+        until = datetime.now(UTC) + duration
+        self._sandbox.write_file(PAUSED_UNTIL_FILE, until.isoformat())
+        return OutgoingMessage(
+            user_id=incoming.user_id,
+            text=(
+                f"⏸️ Paused until {until.strftime('%Y-%m-%d %H:%M UTC')}. "
+                "Send /pause off to resume early."
+            ),
+        )
+
+    def _read_paused_until(self) -> datetime | None:
+        """Read the persisted pause expiry, if any.
+
+        Returns None for missing/empty/malformed content, and also for a
+        naive (no-tzinfo) timestamp — callers compare against an aware
+        ``datetime.now(UTC)``, so a naive value here would raise TypeError
+        rather than just reading as "not paused".
+        """
+        try:
+            raw = self._sandbox.read_file(PAUSED_UNTIL_FILE).strip()
+        except SandboxFileNotFoundError:
+            return None
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo is not None else None
 

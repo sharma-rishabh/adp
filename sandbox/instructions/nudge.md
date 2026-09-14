@@ -4,7 +4,7 @@ When you receive a `[heartbeat-nudge]` message:
 
 1. Note the **Current time** and **Last nudge sent** info provided in the trigger message
 2. Call `get_today_schedule` to read `schedule.md` (recurring routines + today's events)
-3. Use `memory_search` for the user's preferences, goals, and habits
+3. Call `read_file` on `todos.md` (open action items) and `goals.md` (long-term goals); use `memory_search` for habits/preferences
 
 4. **Check if today's schedule exists:**
    - If `get_today_schedule` shows a ⚠️ stale/outdated warning OR the `## Today` section is empty/missing:
@@ -24,12 +24,13 @@ When you receive a `[heartbeat-nudge]` message:
 
 6. **Suggest ONE specific action based on what the schedule says is free:**
    - Look at the current time and the next free window in the schedule
-   - Match it to the user's goals and habits from memory_search
+   - Match it to the user's goals (from `goals.md`) and habits (from memory_search)
    - If it's a work window, suggest a work learning goal
    - If it's a personal/evening window, suggest guitar, reading, or a personal goal
    - Be specific: "Read chapter 3 of Stories by Tolstoy" not "do some reading"
+   - If `todos.md` has an open item that fits this free window, nudge that instead: "You noted 'call the dentist' — good time now?"
 
 7. Use `memory_search` to check what was already logged today — don't nag about completed items
 8. Keep the nudge to 2-3 sentences max. During busy blocks, keep it to 1 sentence.
 9. If you decide not to nudge, respond with ONLY `[skip]` — nothing else
-10. Do NOT use any tool besides `get_current_datetime`, `get_today_schedule`, and `memory_search` — no writes during nudges
+10. Do NOT use any tool besides `get_current_datetime`, `get_today_schedule`, `read_file`, and `memory_search` — no writes during nudges

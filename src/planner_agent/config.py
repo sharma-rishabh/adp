@@ -10,8 +10,9 @@ Config file location can be overridden via ``ADP_CONFIG_PATH`` env var.
 from __future__ import annotations
 
 import os
+import re
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -20,6 +21,23 @@ from planner_agent.exceptions import ConfigValidationError
 
 _DEFAULT_CONFIG_DIR = Path.home() / ".adp"
 _DEFAULT_CONFIG_PATH = _DEFAULT_CONFIG_DIR / "config.yaml"
+_HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def _coerce_hhmm(value: object, key: str) -> str:
+    """Coerce a config time value to a validated 'HH:MM' string.
+
+    YAML 1.1 parses an unquoted bare ``HH:MM`` as a sexagesimal integer
+    (``13:00`` -> ``780``) whenever the hour is >= 10, which is exactly how
+    a human editing this file by hand would write it. Recover the original
+    HH:MM from that integer before validating.
+    """
+    if isinstance(value, int):
+        value = f"{value // 60:02d}:{value % 60:02d}"
+    text = str(value).strip()
+    if not _HHMM_RE.match(text):
+        raise ConfigValidationError(f"{key} must be HH:MM, got {value!r}.")
+    return text
 
 # Bundled instruction templates shipped with the package
 _BUNDLED_INSTRUCTIONS_DIR = Path(__file__).resolve().parent.parent.parent / "sandbox" / "instructions"
@@ -41,9 +59,11 @@ class AppConfig:
     # --- From config file ---
     sandbox_path: str = str(Path.home() / ".adp" / "sandbox")
     claude_model: str = "claude-haiku-4-5-20251001"
+    reflection_model: str = "claude-sonnet-5"  # smarter model for EOD reflections
     max_agent_turns: int = 10
     timezone: str = "UTC"
-    heartbeat_interval_minutes: int = 2
+    nudge_times: list[str] = field(default_factory=lambda: ["09:00", "13:00", "18:00"])
+    nudge_backoff_threshold: int = 3  # consecutive ignored nudges before backing off
     daily_token_budget: int = 100000
     use_mempalace: bool = True
     system_prompt_path: str = "instructions/system_prompt.md"
@@ -99,6 +119,7 @@ class AppConfig:
         # --- Config file values with defaults ---
         sandbox_path = str(cfg.get("sandbox_path", Path.home() / ".adp" / "sandbox"))
         claude_model = cfg.get("claude_model", "claude-haiku-4-5-20251001")
+        reflection_model = cfg.get("reflection_model", "claude-sonnet-5")
         timezone = cfg.get("timezone", "UTC")
         system_prompt_path = cfg.get(
             "system_prompt_path", "instructions/system_prompt.md"
@@ -111,19 +132,22 @@ class AppConfig:
                 f"max_agent_turns must be >= 1, got {max_agent_turns}."
             )
 
-        heartbeat_interval_minutes = _parse_int(
-            cfg, "heartbeat_interval_minutes", 60
-        )
-        if heartbeat_interval_minutes < 0:
+        nudge_times = [
+            _coerce_hhmm(t, "nudge_times")
+            for t in cfg.get("nudge_times", ["09:00", "13:00", "18:00"])
+        ]
+
+        nudge_backoff_threshold = _parse_int(cfg, "nudge_backoff_threshold", 3)
+        if nudge_backoff_threshold < 1:
             raise ConfigValidationError(
-                f"heartbeat_interval_minutes must be >= 0, got {heartbeat_interval_minutes}."
+                f"nudge_backoff_threshold must be >= 1, got {nudge_backoff_threshold}."
             )
 
         daily_token_budget = _parse_int(cfg, "daily_token_budget", 100000)
 
-        eod_reflection_time = str(cfg.get("eod_reflection_time", "22:30"))
-        quiet_hours_start = str(cfg.get("quiet_hours_start", "23:00"))
-        quiet_hours_end = str(cfg.get("quiet_hours_end", "09:00"))
+        eod_reflection_time = _coerce_hhmm(cfg.get("eod_reflection_time", "22:30"), "eod_reflection_time")
+        quiet_hours_start = _coerce_hhmm(cfg.get("quiet_hours_start", "23:00"), "quiet_hours_start")
+        quiet_hours_end = _coerce_hhmm(cfg.get("quiet_hours_end", "09:00"), "quiet_hours_end")
 
         return cls(
             anthropic_api_key=anthropic_api_key,
@@ -132,9 +156,11 @@ class AppConfig:
             sandbox_path=sandbox_path,
             system_prompt_path=system_prompt_path,
             claude_model=claude_model,
+            reflection_model=reflection_model,
             max_agent_turns=max_agent_turns,
             timezone=timezone,
-            heartbeat_interval_minutes=heartbeat_interval_minutes,
+            nudge_times=nudge_times,
+            nudge_backoff_threshold=nudge_backoff_threshold,
             daily_token_budget=daily_token_budget,
             use_mempalace=use_mempalace,
             eod_reflection_time=eod_reflection_time,
@@ -160,18 +186,22 @@ class AppConfig:
 def generate_default_config(
     sandbox_path: str | None = None,
     timezone: str = "Asia/Kolkata",
-    heartbeat_interval_minutes: int = 20,
+    nudge_times: list[str] | None = None,
+    nudge_backoff_threshold: int = 3,
     daily_token_budget: int = 100000,
     claude_model: str = "claude-haiku-4-5-20251001",
     use_mempalace: bool = True,
+    reflection_model: str = "claude-sonnet-5",
 ) -> dict:
     """Return a config dict with the given values (for writing to YAML)."""
     return {
         "sandbox_path": sandbox_path or str(Path.home() / ".adp" / "sandbox"),
         "claude_model": claude_model,
+        "reflection_model": reflection_model,
         "max_agent_turns": 10,
         "timezone": timezone,
-        "heartbeat_interval_minutes": heartbeat_interval_minutes,
+        "nudge_times": ["09:00", "13:00", "18:00"] if nudge_times is None else nudge_times,
+        "nudge_backoff_threshold": nudge_backoff_threshold,
         "daily_token_budget": daily_token_budget,
         "use_mempalace": use_mempalace,
         "system_prompt_path": "instructions/system_prompt.md",
@@ -221,6 +251,19 @@ def seed_sandbox(sandbox_path: str) -> None:
             "<!-- Add your daily routines here -->\n\n"
             f"## Today ({today})\n\n"
             "<!-- Today's schedule will be written here -->\n"
+        )
+
+    # Ensure todos.md and goals.md exist (action items + long-term goals)
+    todos_file = sandbox / "todos.md"
+    if not todos_file.exists():
+        todos_file.write_text(
+            "# TODOs\n\n"
+            "<!-- Open: - [ ] task (added YYYY-MM-DD) | Done: - [x] task (done YYYY-MM-DD) -->\n"
+        )
+    goals_file = sandbox / "goals.md"
+    if not goals_file.exists():
+        goals_file.write_text(
+            "# Long-term goals\n\n<!-- One goal per line -->\n"
         )
 
 

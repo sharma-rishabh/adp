@@ -16,6 +16,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from .adapters.telegram import TelegramAdapter
+from .agents.base import BaseAgent
 from .agents.claude_agent import ClaudeAgent
 from .config import AppConfig
 from .heartbeat import Heartbeat
@@ -69,6 +70,24 @@ async def  _async_main() -> None:
         max_turns=config.max_agent_turns,
     )
 
+    # A smarter model for the once-a-day EOD reflection (its multi-step
+    # file writes are where a small model struggles). Its own executor keeps
+    # generated-image collection isolated from the primary agent's.
+    reflection_agent: BaseAgent | None = None
+    if config.reflection_model and config.reflection_model != config.claude_model:
+        reflection_agent = ClaudeAgent(
+            api_key=config.anthropic_api_key,
+            model=config.reflection_model,
+            tool_executor=ToolExecutor(
+                sandbox=sandbox,
+                timezone=config.timezone,
+                charts_dir=charts_dir,
+                mempalace=mempalace,
+            ),
+            max_turns=config.max_agent_turns,
+        )
+        logger.info("Reflection model enabled: %s", config.reflection_model)
+
     token_tracker = TokenTracker(
         daily_budget=config.daily_token_budget,
         timezone=config.timezone,
@@ -81,6 +100,7 @@ async def  _async_main() -> None:
         system_prompt_path=config.system_prompt_path,
         token_tracker=token_tracker,
         mempalace=mempalace,
+        reflection_agent=reflection_agent,
     )
 
     adapter = TelegramAdapter(
@@ -104,7 +124,9 @@ async def  _async_main() -> None:
         orchestrator=orchestrator,
         adapter=adapter,
         user_ids=config.allowed_user_ids,
-        interval_minutes=config.heartbeat_interval_minutes,
+        sandbox=sandbox,
+        nudge_times=config.nudge_times,
+        nudge_backoff_threshold=config.nudge_backoff_threshold,
         timezone=config.timezone,
         eod_reflection_time=config.eod_reflection_time,
         quiet_hours_start=config.quiet_hours_start,

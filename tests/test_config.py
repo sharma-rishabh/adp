@@ -47,7 +47,8 @@ class TestFromFile:
         assert config.claude_model == "claude-haiku-4-5-20251001"
         assert config.max_agent_turns == 10
         assert config.timezone == "Asia/Kolkata"  # default from generate_default_config
-        assert config.heartbeat_interval_minutes == 20
+        assert config.nudge_times == ["09:00", "13:00", "18:00"]
+        assert config.nudge_backoff_threshold == 3
         assert config.daily_token_budget == 100000
         assert config.use_mempalace is True
         # Config file should have been auto-created
@@ -60,7 +61,8 @@ class TestFromFile:
             "claude_model": "claude-opus-4-20250514",
             "max_agent_turns": 5,
             "timezone": "Asia/Kolkata",
-            "heartbeat_interval_minutes": 30,
+            "nudge_times": ["08:00", "17:00"],
+            "nudge_backoff_threshold": 5,
             "daily_token_budget": 50000,
             "use_mempalace": False,
         }
@@ -70,7 +72,8 @@ class TestFromFile:
         assert config.claude_model == "claude-opus-4-20250514"
         assert config.max_agent_turns == 5
         assert config.timezone == "Asia/Kolkata"
-        assert config.heartbeat_interval_minutes == 30
+        assert config.nudge_times == ["08:00", "17:00"]
+        assert config.nudge_backoff_threshold == 5
         assert config.daily_token_budget == 50000
         assert config.use_mempalace is False
 
@@ -127,9 +130,34 @@ class TestInvalidValues:
             AppConfig.from_file(config_path)
 
     @pytest.mark.usefixtures("_env_vars")
-    def test_negative_heartbeat_raises(self, config_path):
-        config_path.write_text(yaml.dump({"heartbeat_interval_minutes": -1}))
-        with pytest.raises(ConfigValidationError, match=">= 0"):
+    def test_zero_backoff_threshold_raises(self, config_path):
+        config_path.write_text(yaml.dump({"nudge_backoff_threshold": 0}))
+        with pytest.raises(ConfigValidationError, match=">= 1"):
+            AppConfig.from_file(config_path)
+
+
+class TestTimeCoercion:
+    """Tests for _coerce_hhmm — guards against YAML parsing bare HH:MM as int."""
+
+    @pytest.mark.usefixtures("_env_vars")
+    def test_yaml_sexagesimal_int_is_recovered(self, config_path):
+        # A hand-edited config with unquoted times: YAML 1.1 parses "13:00"
+        # as the int 780 and "18:00" as 1080.
+        config_path.write_text("nudge_times: [9:00, 13:00, 18:00]\neod_reflection_time: 22:30\n")
+        config = AppConfig.from_file(config_path)
+        assert config.nudge_times == ["09:00", "13:00", "18:00"]
+        assert config.eod_reflection_time == "22:30"
+
+    @pytest.mark.usefixtures("_env_vars")
+    def test_malformed_time_raises(self, config_path):
+        config_path.write_text(yaml.dump({"eod_reflection_time": "25:99"}))
+        with pytest.raises(ConfigValidationError, match="HH:MM"):
+            AppConfig.from_file(config_path)
+
+    @pytest.mark.usefixtures("_env_vars")
+    def test_malformed_nudge_time_raises(self, config_path):
+        config_path.write_text(yaml.dump({"nudge_times": ["not-a-time"]}))
+        with pytest.raises(ConfigValidationError, match="HH:MM"):
             AppConfig.from_file(config_path)
 
 
@@ -137,7 +165,7 @@ class TestGenerateConfig:
     def test_generates_defaults(self):
         cfg = generate_default_config()
         assert cfg["timezone"] == "Asia/Kolkata"
-        assert cfg["heartbeat_interval_minutes"] == 20
+        assert cfg["nudge_times"] == ["09:00", "13:00", "18:00"]
         assert cfg["use_mempalace"] is True
 
     def test_write_and_read_roundtrip(self, tmp_path):

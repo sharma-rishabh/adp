@@ -11,6 +11,7 @@ import pytest
 from planner_agent.adapters.base import IncomingMessage
 from planner_agent.orchestrator import Orchestrator
 from planner_agent.token_tracker import TokenTracker
+from planner_agent.triggers import EOD_TRIGGER, NUDGE_TRIGGER
 from tests.fakes import FakeAgent, FakeMemPalace, FakeSandbox
 
 _SYSTEM_PROMPT = "You are a test planner."
@@ -77,6 +78,176 @@ class TestHandleMessage:
         assert history[1]["role"] == "assistant"
         assert history[2]["role"] == "user"
         assert history[2]["content"] == "msg2"
+
+
+class TestReflectionRouting:
+    """Tests for routing EOD reflections to the reflection agent."""
+
+    @pytest.fixture()
+    def reflection_agent(self) -> FakeAgent:
+        return FakeAgent(canned_response="reflection reply")
+
+    @pytest.fixture()
+    def routing_orchestrator(self, fake_agent, reflection_agent, fake_sandbox) -> Orchestrator:
+        return Orchestrator(
+            agent=fake_agent,
+            sandbox=fake_sandbox,
+            system_prompt_path="instructions/system_prompt.md",
+            reflection_agent=reflection_agent,
+        )
+
+    @pytest.mark.asyncio
+    async def test_reflection_trigger_uses_reflection_agent(
+        self, routing_orchestrator, fake_agent, reflection_agent
+    ):
+        await routing_orchestrator.handle_message(_make_message(f"{EOD_TRIGGER} now"))
+        assert len(reflection_agent.calls) == 1
+        assert fake_agent.calls == []
+
+    @pytest.mark.asyncio
+    async def test_reflection_reply_stays_on_reflection_agent(
+        self, routing_orchestrator, fake_agent, reflection_agent
+    ):
+        # The trigger opens the reflection; the user's reply (no trigger)
+        # must still be processed by the reflection agent.
+        await routing_orchestrator.handle_message(_make_message(f"{EOD_TRIGGER} now"))
+        await routing_orchestrator.handle_message(_make_message("gym yes, read 20 pages"))
+        assert len(reflection_agent.calls) == 2
+        assert fake_agent.calls == []
+
+    @pytest.mark.asyncio
+    async def test_nudge_uses_primary_agent(
+        self, routing_orchestrator, fake_agent, reflection_agent
+    ):
+        await routing_orchestrator.handle_message(_make_message(f"{NUDGE_TRIGGER} now"))
+        assert len(fake_agent.calls) == 1
+        assert reflection_agent.calls == []
+
+    @pytest.mark.asyncio
+    async def test_ordinary_chat_uses_primary_agent(
+        self, routing_orchestrator, fake_agent, reflection_agent
+    ):
+        await routing_orchestrator.handle_message(_make_message("what's on today?"))
+        assert len(fake_agent.calls) == 1
+        assert reflection_agent.calls == []
+
+    @pytest.mark.asyncio
+    async def test_nudge_during_reflection_window_uses_primary(
+        self, routing_orchestrator, fake_agent, reflection_agent
+    ):
+        await routing_orchestrator.handle_message(_make_message(f"{EOD_TRIGGER} now"))
+        await routing_orchestrator.handle_message(_make_message(f"{NUDGE_TRIGGER} now"))
+        assert len(reflection_agent.calls) == 1  # only the trigger
+        assert len(fake_agent.calls) == 1  # the nudge
+
+    @pytest.mark.asyncio
+    async def test_no_reflection_agent_falls_back_to_primary(self, orchestrator, fake_agent):
+        await orchestrator.handle_message(_make_message(f"{EOD_TRIGGER} now"))
+        assert fake_agent.calls == [f"{EOD_TRIGGER} now"]
+
+
+class TestPauseCommand:
+    """Tests for the /pause slash command."""
+
+    @pytest.mark.asyncio
+    async def test_pause_with_duration_writes_file(self, orchestrator, fake_sandbox):
+        reply = await orchestrator.handle_message(_make_message("/pause 3d"))
+        assert "Paused until" in reply.text
+        assert "paused_until.txt" in fake_sandbox.files
+        assert fake_sandbox.files["paused_until.txt"] != ""
+
+    @pytest.mark.asyncio
+    async def test_pause_hours_and_minutes(self, orchestrator):
+        reply = await orchestrator.handle_message(_make_message("/pause 12h"))
+        assert "Paused until" in reply.text
+        reply = await orchestrator.handle_message(_make_message("/pause 90m"))
+        assert "Paused until" in reply.text
+
+    @pytest.mark.asyncio
+    async def test_pause_invalid_duration_shows_usage(self, orchestrator):
+        reply = await orchestrator.handle_message(_make_message("/pause banana"))
+        assert "Usage: /pause" in reply.text
+
+    @pytest.mark.asyncio
+    async def test_pause_absurd_duration_does_not_crash(self, orchestrator):
+        # A huge value would overflow timedelta's C-int backing if it ever
+        # reached construction unbounded — must be rejected cleanly instead.
+        reply = await orchestrator.handle_message(_make_message("/pause 999999999999d"))
+        assert "Usage: /pause" in reply.text
+
+    @pytest.mark.asyncio
+    async def test_pause_over_30_days_rejected(self, orchestrator):
+        reply = await orchestrator.handle_message(_make_message("/pause 31d"))
+        assert "Usage: /pause" in reply.text
+
+    @pytest.mark.asyncio
+    async def test_pause_off_clears_file(self, orchestrator, fake_sandbox):
+        await orchestrator.handle_message(_make_message("/pause 3d"))
+        reply = await orchestrator.handle_message(_make_message("/pause off"))
+        assert "Resumed" in reply.text
+        assert fake_sandbox.files["paused_until.txt"] == ""
+
+    @pytest.mark.asyncio
+    async def test_pause_no_args_reports_not_paused(self, orchestrator):
+        reply = await orchestrator.handle_message(_make_message("/pause"))
+        assert "Not paused" in reply.text
+
+    @pytest.mark.asyncio
+    async def test_pause_no_args_reports_current_pause(self, orchestrator):
+        await orchestrator.handle_message(_make_message("/pause 3d"))
+        reply = await orchestrator.handle_message(_make_message("/pause"))
+        assert "Paused until" in reply.text
+
+    @pytest.mark.asyncio
+    async def test_pause_does_not_reach_agent(self, orchestrator, fake_agent):
+        await orchestrator.handle_message(_make_message("/pause 3d"))
+        assert fake_agent.calls == []
+
+    @pytest.mark.asyncio
+    async def test_pause_status_with_naive_timestamp_in_file_does_not_raise(
+        self, orchestrator, fake_sandbox
+    ):
+        # A naive (no-tzinfo) ISO string can't be compared against
+        # datetime.now(UTC) — must read as "not paused", not raise.
+        fake_sandbox.files["paused_until.txt"] = "2026-01-01T00:00:00"
+        reply = await orchestrator.handle_message(_make_message("/pause"))
+        assert "Not paused" in reply.text
+
+    @pytest.mark.asyncio
+    async def test_pause_status_with_garbage_file_does_not_raise(
+        self, orchestrator, fake_sandbox
+    ):
+        fake_sandbox.files["paused_until.txt"] = "not a timestamp"
+        reply = await orchestrator.handle_message(_make_message("/pause"))
+        assert "Not paused" in reply.text
+
+
+class TestReplyActivityTracking:
+    """Tests for has_replied_since, used by heartbeat nudge backoff."""
+
+    @pytest.mark.asyncio
+    async def test_real_message_counts_as_activity(self, orchestrator):
+        from datetime import UTC, datetime
+        before = datetime.now(UTC)
+        await orchestrator.handle_message(_make_message("hi"))
+        assert orchestrator.has_replied_since("user1", before) is True
+
+    @pytest.mark.asyncio
+    async def test_no_activity_yet_returns_false(self, orchestrator):
+        from datetime import UTC, datetime
+        assert orchestrator.has_replied_since("user1", datetime.now(UTC)) is False
+
+    @pytest.mark.asyncio
+    async def test_nudge_and_eod_triggers_do_not_count_as_activity(self, orchestrator):
+        from datetime import UTC, datetime
+        before = datetime.now(UTC)
+        await orchestrator.handle_message(
+            IncomingMessage(user_id="user1", text=f"{NUDGE_TRIGGER} now", adapter_name="heartbeat")
+        )
+        await orchestrator.handle_message(
+            IncomingMessage(user_id="user1", text=f"{EOD_TRIGGER} now", adapter_name="eod-reflection")
+        )
+        assert orchestrator.has_replied_since("user1", before) is False
 
 
 class TestHistoryTrimming:

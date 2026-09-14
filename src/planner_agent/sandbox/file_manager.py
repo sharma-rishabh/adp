@@ -63,11 +63,14 @@ class SandboxFileManager(BaseSandbox):
 
         Raises:
             SandboxFileNotFoundError: If the file does not exist.
+            SandboxNotADirectoryError: If the path is a directory.
             SandboxPathTraversalError: If the path escapes the sandbox.
         """
         path = self._resolve_safe(relative_path)
         if not path.exists():
             raise SandboxFileNotFoundError(f"File not found: {relative_path}")
+        if path.is_dir():
+            raise SandboxNotADirectoryError(f"Path is a directory, not a file: {relative_path}")
         logger.debug("Reading %s", relative_path)
         return path.read_text(encoding="utf-8")
 
