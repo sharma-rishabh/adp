@@ -3,12 +3,10 @@
 Decisions made 2026-09-11 while diagnosing why the assistant went stale (nudge
 pile-up → guilt → abandonment) and why recall felt unreliable.
 
-**Status as of 2026-09-14:** #2, #3, #7, and #8 are implemented (see below,
-each marked ✅). #1 is partially done (`todos.md`/`goals.md` extracted;
-reflections/notes/skills/preferences still on MemPalace — teardown checklist
-below still applies to those). #4, #5, #6 are still just specs.
+**Status as of 2026-09-14:** #1, #2, #3, #7, and #8 are implemented (see
+below, each marked ✅). #4, #5, #6 are still just specs.
 
-## 1. Remove MemPalace
+## 1. Remove MemPalace ✅ done
 
 **Why:** the two things it was meant to serve — "what happened on day X" and
 "long-term summary of what I've achieved" — are both better served by plain
@@ -32,23 +30,25 @@ method and never passed to `search_memories(...)`.
   Same fix already applied to todos/goals for the same reason (semantic
   recall of small durable facts is unreliable); preferences never got it.
 
-**Teardown checklist when we do this:**
-- `src/planner_agent/memory/` (`mempalace_store.py`, `base.py`) — delete.
-- `config.py`: remove `use_mempalace` field, its parsing in `from_file()`,
-  and from `generate_default_config()`.
-- `main.py`, `orchestrator.py`, `tools/executor.py`: remove `mempalace`
-  construction/wiring, `memory_search`/`memory_store` dispatch, schedule
-  archiving (`_archive_old_schedule`), conversation archiving
-  (`store_conversation` call in `orchestrator._update_history`).
-- `tools/definitions.py`: remove `memory_search`/`memory_store` tool schemas.
-- `sandbox/instructions/system_prompt.md`: remove the "MemPalace usage"
-  section (rules 13-19), replace with `preferences.md` + `journal/` rules.
-- `orchestrator.py`: `/memories` and `/skill` slash commands currently write
-  to MemPalace — repoint `/skill` at a plain file (e.g. append to a
-  `skills.md`), drop or repurpose `/memories`.
-- `pyproject.toml`: drop `mempalace`/`chromadb` deps.
-- Tests referencing `mempalace`/`MemPalaceStore`/`use_mempalace` (grep before
-  starting — several exist in `tests/`).
+**Implemented:** `src/planner_agent/memory/` deleted entirely.
+`config.py`'s `use_mempalace` field, parsing, and `generate_default_config()`
+param removed; `seed_sandbox` now seeds `preferences.md` and `skills.md`
+alongside `todos.md`/`goals.md`. `main.py`/`orchestrator.py`/`tools/executor.py`
+no longer construct or accept a `mempalace` param; `_archive_old_schedule`
+and the per-exchange `store_conversation` call in `_update_history` are gone
+(conversation history is in-memory only now, not archived anywhere — accepted
+loss per the "Why" above). `tools/definitions.py` no longer has
+`memory_search`/`memory_store` schemas. `system_prompt.md`, `nudge.md`,
+`eod_reflection.md`, `budget_tracking.md` all repointed at `journal/YYYY-MM.md`
+and `preferences.md`. `/memories` was dropped (falls through to ordinary
+chat); `/skill` now appends to `skills.md` via direct sandbox read/write.
+`pyproject.toml`/`poetry.lock` no longer list `mempalace`/`chromadb`.
+`scripts/migrate_to_mempalace.py` (the one-time flat-files→MemPalace migration
+script, now migrating in the wrong direction) deleted. Tests: `test_mempalace.py`
+deleted, `FakeMemPalace` removed from `tests/fakes.py`, and the
+MemPalace-dependent tests in `test_orchestrator.py`/`test_tools.py`/
+`test_config.py` removed or updated; new coverage added for the repointed
+`/skill`, dropped `/memories`, and `preferences.md`/`skills.md` seeding.
 
 **Revisit MemPalace (or something like it) if:** the journal corpus gets too
 large to read wholesale for a summary, or a genuine fuzzy/associative recall

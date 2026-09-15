@@ -7,7 +7,6 @@ designated root directory.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from pathlib import Path
 
 
 class BaseSandbox(ABC):
@@ -63,8 +62,3 @@ class BaseSandbox(ABC):
             SandboxNotADirectoryError: If the path is not a directory.
             SandboxPathTraversalError: If the path escapes the sandbox.
         """
-
-    @property
-    @abstractmethod
-    def palace_path(self) -> Path:
-        """Path to the MemPalace store inside the sandbox."""

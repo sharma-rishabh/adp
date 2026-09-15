@@ -50,7 +50,6 @@ class TestFromFile:
         assert config.nudge_times == ["09:00", "13:00", "18:00"]
         assert config.nudge_backoff_threshold == 3
         assert config.daily_token_budget == 100000
-        assert config.use_mempalace is True
         # Config file should have been auto-created
         assert config_path.exists()
 
@@ -64,7 +63,6 @@ class TestFromFile:
             "nudge_times": ["08:00", "17:00"],
             "nudge_backoff_threshold": 5,
             "daily_token_budget": 50000,
-            "use_mempalace": False,
         }
         config_path.write_text(yaml.dump(cfg))
         config = AppConfig.from_file(config_path)
@@ -75,7 +73,6 @@ class TestFromFile:
         assert config.nudge_times == ["08:00", "17:00"]
         assert config.nudge_backoff_threshold == 5
         assert config.daily_token_budget == 50000
-        assert config.use_mempalace is False
 
 
 class TestFromEnvBackcompat:
@@ -166,7 +163,6 @@ class TestGenerateConfig:
         cfg = generate_default_config()
         assert cfg["timezone"] == "Asia/Kolkata"
         assert cfg["nudge_times"] == ["09:00", "13:00", "18:00"]
-        assert cfg["use_mempalace"] is True
 
     def test_write_and_read_roundtrip(self, tmp_path):
         path = tmp_path / "config.yaml"
@@ -193,3 +189,9 @@ class TestSeedSandbox:
         schedule.write_text("custom content")
         seed_sandbox(sandbox)
         assert schedule.read_text() == "custom content"
+
+    def test_creates_preferences_and_skills_md(self, tmp_path):
+        sandbox = str(tmp_path / "sandbox")
+        seed_sandbox(sandbox)
+        assert (Path(sandbox) / "preferences.md").exists()
+        assert (Path(sandbox) / "skills.md").exists()

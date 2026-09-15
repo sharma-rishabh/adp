@@ -39,7 +39,7 @@ When the user asks about spending, budget, or money:
    - `title` = "Budget — <Month YYYY>" or "Daily Spend — <Month YYYY>"
 
 ### Budget goals (optional)
-- If the user sets a monthly budget target, store it via memory_store (category: preference)
+- If the user sets a monthly budget target, add or refine a line in `preferences.md`
 - When showing summaries, compare against the target and flag if over/under
 - During EOD reflection, mention if today's spend pushed past a threshold
 

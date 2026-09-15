@@ -7,8 +7,8 @@ When you receive a `[eod-reflection]` trigger OR the user asks for an evening re
 2. Call `get_today_schedule` to see what was planned
 3. Read `instructions/habit_tracking.md` — follow its format rules for logging habits
 4. Read `instructions/budget_tracking.md` — follow its format rules for logging spending
-5. Call `read_file` on `goals.md` (long-term goals) and `todos.md` (open action items)
-6. Call `memory_search` with "today reflection progress" for any earlier notes today
+5. Call `read_file` on `goals.md` (long-term goals), `todos.md` (open action items), and `preferences.md`
+6. Call `read_file` on this month's `journal/YYYY-MM.md` — check if today's `## YYYY-MM-DD` heading already has notes from earlier
 7. Call `list_files` on `habits/` then `read_file` for each — check what was logged today
 8. Call `read_file` on `budget/YYYY-MM.json` (current month) to see today's spending
 
@@ -53,12 +53,14 @@ Number all questions. Wait for the user's reply.
 2. If the user reports progress on a long-term goal, refine the matching line in `goals.md`.
 
 **Reflection:**
-1. Use `memory_store` to save a concise summary:
+1. Read this month's `journal/YYYY-MM.md` (create with `# Journal` if missing)
+2. Append or update today's `## YYYY-MM-DD` heading with a concise summary:
    - What was accomplished vs planned
    - Goal progress (which long-term goals got attention)
    - What slipped and why
    - Today's total spend and category breakdown
-2. Do NOT write reflection .md files — everything goes to MemPalace
+3. If today's heading already had notes from Phase 1 step 6, merge rather than duplicate
+4. Write the file back
 
 ### Phase 4 — Summary (one message, concise)
 - ✅ What aligned with your goals today

@@ -20,7 +20,6 @@ from .agents.base import BaseAgent
 from .agents.claude_agent import ClaudeAgent
 from .config import AppConfig
 from .heartbeat import Heartbeat
-from .memory.mempalace_store import MemPalaceStore
 from .orchestrator import Orchestrator
 from .sandbox.file_manager import SandboxFileManager
 from .token_tracker import TokenTracker
@@ -51,16 +50,10 @@ async def  _async_main() -> None:
     sandbox = SandboxFileManager(sandbox_root=config.sandbox_path)
     charts_dir = str(Path(config.sandbox_path) / "charts")
 
-    mempalace: MemPalaceStore | None = None
-    if config.use_mempalace:
-        mempalace = MemPalaceStore(palace_path=sandbox.palace_path)
-        logger.info("MemPalace enabled at %s", sandbox.palace_path)
-
     tool_executor = ToolExecutor(
         sandbox=sandbox,
         timezone=config.timezone,
         charts_dir=charts_dir,
-        mempalace=mempalace,
     )
 
     agent = ClaudeAgent(
@@ -82,7 +75,6 @@ async def  _async_main() -> None:
                 sandbox=sandbox,
                 timezone=config.timezone,
                 charts_dir=charts_dir,
-                mempalace=mempalace,
             ),
             max_turns=config.max_agent_turns,
         )
@@ -99,7 +91,6 @@ async def  _async_main() -> None:
         sandbox=sandbox,
         system_prompt_path=config.system_prompt_path,
         token_tracker=token_tracker,
-        mempalace=mempalace,
         reflection_agent=reflection_agent,
     )
 

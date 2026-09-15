@@ -117,10 +117,3 @@ class SandboxFileManager(BaseSandbox):
         logger.debug("Listed %d files in %s", len(files), relative_dir)
         return files
 
-    @property
-    def palace_path(self) -> Path:
-        """Path to the MemPalace store inside the sandbox."""
-        path = self.root / "palace"
-        path.mkdir(exist_ok=True)
-        return path
-

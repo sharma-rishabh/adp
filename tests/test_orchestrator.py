@@ -12,7 +12,7 @@ from planner_agent.adapters.base import IncomingMessage
 from planner_agent.orchestrator import Orchestrator
 from planner_agent.token_tracker import TokenTracker
 from planner_agent.triggers import EOD_TRIGGER, NUDGE_TRIGGER
-from tests.fakes import FakeAgent, FakeMemPalace, FakeSandbox
+from tests.fakes import FakeAgent, FakeSandbox
 
 _SYSTEM_PROMPT = "You are a test planner."
 
@@ -144,6 +144,44 @@ class TestReflectionRouting:
     async def test_no_reflection_agent_falls_back_to_primary(self, orchestrator, fake_agent):
         await orchestrator.handle_message(_make_message(f"{EOD_TRIGGER} now"))
         assert fake_agent.calls == [f"{EOD_TRIGGER} now"]
+
+
+class TestSkillCommand:
+    """Tests for /skill — repointed to skills.md now that MemPalace is gone."""
+
+    @pytest.mark.asyncio
+    async def test_skill_with_text_appends_to_skills_md(self, orchestrator, fake_sandbox):
+        reply = await orchestrator.handle_message(_make_message("/skill Budget Tracking — log to JSON"))
+        assert "Skill stored" in reply.text
+        assert "skills.md" in fake_sandbox.files
+        assert "Budget Tracking" in fake_sandbox.files["skills.md"]
+
+    @pytest.mark.asyncio
+    async def test_skill_appends_without_clobbering_existing(self, orchestrator, fake_sandbox):
+        fake_sandbox.files["skills.md"] = "# Skills\n\n- Old skill\n"
+        await orchestrator.handle_message(_make_message("/skill New skill"))
+        content = fake_sandbox.files["skills.md"]
+        assert "Old skill" in content
+        assert "New skill" in content
+
+    @pytest.mark.asyncio
+    async def test_skill_without_text_shows_usage(self, orchestrator):
+        reply = await orchestrator.handle_message(_make_message("/skill"))
+        assert "Usage: /skill" in reply.text
+
+    @pytest.mark.asyncio
+    async def test_skill_does_not_reach_agent(self, orchestrator, fake_agent):
+        await orchestrator.handle_message(_make_message("/skill Some skill"))
+        assert fake_agent.calls == []
+
+
+class TestMemoriesCommandRemoved:
+    """/memories was dropped along with MemPalace — it's now ordinary chat."""
+
+    @pytest.mark.asyncio
+    async def test_memories_falls_through_to_agent(self, orchestrator, fake_agent):
+        await orchestrator.handle_message(_make_message("/memories"))
+        assert fake_agent.calls == ["/memories"]
 
 
 class TestPauseCommand:
@@ -323,57 +361,5 @@ class TestTokenProgressBar:
         reply = await orchestrator.handle_message(_make_message("hi"))
         assert reply.text == "Got it!"
         assert "⚡" not in reply.text
-
-
-class TestConversationArchival:
-    """Tests for archiving trimmed conversations to MemPalace."""
-
-    @pytest.fixture()
-    def mempalace(self) -> FakeMemPalace:
-        return FakeMemPalace()
-
-    @pytest.fixture()
-    def archiving_orchestrator(self, fake_agent, fake_sandbox, mempalace) -> Orchestrator:
-        return Orchestrator(
-            agent=fake_agent,
-            sandbox=fake_sandbox,
-            system_prompt_path="instructions/system_prompt.md",
-            history_limit=6,
-            mempalace=mempalace,
-        )
-
-    @pytest.mark.asyncio
-    async def test_trimmed_messages_stored_in_mempalace(self, archiving_orchestrator, mempalace):
-        # history_limit=6, each exchange=2 messages. After 4 exchanges (8 msgs), trim 2.
-        for i in range(4):
-            await archiving_orchestrator.handle_message(_make_message(f"msg{i}"))
-
-        # Every exchange is stored immediately (4 exchanges = 4 stores)
-        assert len(mempalace.stored) == 4
-        text, hall, room = mempalace.stored[0]
-        assert "conversation-archive" == room
-        assert "msg0" in text
-
-    @pytest.mark.asyncio
-    async def test_no_archive_when_under_limit(self, archiving_orchestrator, mempalace):
-        # 2 exchanges = 4 messages, under limit of 6
-        for i in range(2):
-            await archiving_orchestrator.handle_message(_make_message(f"msg{i}"))
-
-        # Every exchange is stored (2 stores)
-        assert len(mempalace.stored) == 2
-
-    @pytest.mark.asyncio
-    async def test_no_archive_without_mempalace(self, fake_agent, fake_sandbox):
-        orch = Orchestrator(
-            agent=fake_agent,
-            sandbox=fake_sandbox,
-            system_prompt_path="instructions/system_prompt.md",
-            history_limit=6,
-            mempalace=None,
-        )
-        # Should not raise even when trimming without mempalace
-        for i in range(5):
-            await orch.handle_message(_make_message(f"msg{i}"))
 
 

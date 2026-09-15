@@ -65,7 +65,6 @@ class AppConfig:
     nudge_times: list[str] = field(default_factory=lambda: ["09:00", "13:00", "18:00"])
     nudge_backoff_threshold: int = 3  # consecutive ignored nudges before backing off
     daily_token_budget: int = 100000
-    use_mempalace: bool = True
     system_prompt_path: str = "instructions/system_prompt.md"
     eod_reflection_time: str = "22:30"  # HH:MM in user's timezone
     quiet_hours_start: str = "23:00"  # HH:MM — heartbeat paused from this time
@@ -124,8 +123,6 @@ class AppConfig:
         system_prompt_path = cfg.get(
             "system_prompt_path", "instructions/system_prompt.md"
         )
-        use_mempalace = bool(cfg.get("use_mempalace", True))
-
         max_agent_turns = _parse_int(cfg, "max_agent_turns", 10)
         if max_agent_turns < 1:
             raise ConfigValidationError(
@@ -162,7 +159,6 @@ class AppConfig:
             nudge_times=nudge_times,
             nudge_backoff_threshold=nudge_backoff_threshold,
             daily_token_budget=daily_token_budget,
-            use_mempalace=use_mempalace,
             eod_reflection_time=eod_reflection_time,
             quiet_hours_start=quiet_hours_start,
             quiet_hours_end=quiet_hours_end,
@@ -190,7 +186,6 @@ def generate_default_config(
     nudge_backoff_threshold: int = 3,
     daily_token_budget: int = 100000,
     claude_model: str = "claude-haiku-4-5-20251001",
-    use_mempalace: bool = True,
     reflection_model: str = "claude-sonnet-5",
 ) -> dict:
     """Return a config dict with the given values (for writing to YAML)."""
@@ -203,7 +198,6 @@ def generate_default_config(
         "nudge_times": ["09:00", "13:00", "18:00"] if nudge_times is None else nudge_times,
         "nudge_backoff_threshold": nudge_backoff_threshold,
         "daily_token_budget": daily_token_budget,
-        "use_mempalace": use_mempalace,
         "system_prompt_path": "instructions/system_prompt.md",
         "eod_reflection_time": "22:30",
         "quiet_hours_start": "23:00",
@@ -265,6 +259,16 @@ def seed_sandbox(sandbox_path: str) -> None:
         goals_file.write_text(
             "# Long-term goals\n\n<!-- One goal per line -->\n"
         )
+
+    # Ensure preferences.md and skills.md exist (durable prefs + quick-captured skills)
+    preferences_file = sandbox / "preferences.md"
+    if not preferences_file.exists():
+        preferences_file.write_text(
+            "# Preferences\n\n<!-- One durable preference per line -->\n"
+        )
+    skills_file = sandbox / "skills.md"
+    if not skills_file.exists():
+        skills_file.write_text("# Skills\n\n<!-- Added via /skill -->\n")
 
 
 def _require_env(name: str) -> str:

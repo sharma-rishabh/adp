@@ -13,17 +13,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from planner_agent.exceptions import (
-    AgentToolExecutionError,
-    SandboxFileNotFoundError,
-    SandboxNotADirectoryError,
-)
-from planner_agent.memory.mempalace_store import (
-    HALL_EVENTS,
-    HALL_FACTS,
-    HALL_PREFERENCES,
-    MemPalaceStore,
-)
+from planner_agent.exceptions import AgentToolExecutionError, SandboxFileNotFoundError
 from planner_agent.sandbox.base import BaseSandbox
 from planner_agent.tools.chart import generate_chart
 
@@ -44,12 +34,10 @@ class ToolExecutor:
         sandbox: BaseSandbox,
         timezone: str = "UTC",
         charts_dir: str | None = None,
-        mempalace: MemPalaceStore | None = None,
     ) -> None:
         self._sandbox = sandbox
         self._timezone = timezone
         self._charts_dir = charts_dir
-        self._mempalace = mempalace
         self._generated_images: list[str] = []
 
     def collect_images(self) -> list[str]:
@@ -89,10 +77,6 @@ class ToolExecutor:
                 return self._get_today_schedule()
             if tool_name == "generate_chart":
                 return self._generate_chart(tool_input)
-            if tool_name == "memory_search":
-                return self._memory_search(tool_input)
-            if tool_name == "memory_store":
-                return self._memory_store(tool_input)
             raise AgentToolExecutionError(f"Unknown tool: {tool_name}")
         except AgentToolExecutionError:
             raise
@@ -124,25 +108,7 @@ class ToolExecutor:
                 except SandboxFileNotFoundError:
                     pass  # File doesn't exist yet — safe to create
 
-        # Archive old schedule in MemPalace before overwriting
-        if path == "schedule.md" and self._mempalace:
-            self._archive_old_schedule()
-
         return self._sandbox.write_file(path, content)
-
-    def _archive_old_schedule(self) -> None:
-        """Read the current schedule.md and store it in MemPalace."""
-        try:
-            old = self._sandbox.read_file("schedule.md")
-            if old and old.strip():
-                # Extract date from "## Today (YYYY-MM-DD)" if present
-                import re
-                match = re.search(r"## Today\s*\((\d{4}-\d{2}-\d{2})\)", old)
-                sched_date = match.group(1) if match else None
-                self._mempalace.store_schedule(old, schedule_date=sched_date)  # type: ignore[union-attr]
-                logger.info("Archived old schedule to MemPalace")
-        except SandboxFileNotFoundError:
-            pass  # Nothing to archive
 
     def _append_file(self, tool_input: dict[str, Any]) -> str:
         """Append content to a file without overwriting existing data."""
@@ -220,29 +186,4 @@ class ToolExecutor:
         )
         self._generated_images.append(path)
         return "Chart saved. It will be sent to you automatically."
-
-    def _memory_search(self, tool_input: dict[str, Any]) -> str:
-        if not self._mempalace:
-            return "MemPalace is disabled. Use read_file to check sandbox files instead."
-        query = tool_input["query"]
-        n = tool_input.get("n_results", 3)
-        snippets = self._mempalace.search(query, n_results=n)
-        if not snippets:
-            return "No relevant memories found."
-        return json.dumps(snippets, indent=2)
-
-    def _memory_store(self, tool_input: dict[str, Any]) -> str:
-        if not self._mempalace:
-            return "MemPalace is disabled."
-        text = tool_input["text"]
-        category = tool_input.get("category", "event")
-        category_map = {
-            "reflection": self._mempalace.store_reflection,
-            "goal": self._mempalace.store_goal_update,
-            "preference": self._mempalace.store_preference,
-            "event": lambda t: self._mempalace.store(t),
-        }
-        store_fn = category_map.get(category, category_map["event"])
-        store_fn(text)
-        return f"Memory stored ({category})."
 

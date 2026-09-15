@@ -14,13 +14,13 @@ from datetime import UTC, datetime, timedelta
 from .adapters.base import IncomingMessage, OutgoingMessage
 from .agents.base import AgentResponse, BaseAgent
 from .exceptions import SandboxFileNotFoundError
-from .memory.mempalace_store import MemPalaceStore
 from .sandbox.base import BaseSandbox
 from .token_tracker import TokenTracker
 from .triggers import EOD_ADAPTER, EOD_TRIGGER, HEARTBEAT_ADAPTER, NUDGE_TRIGGER, PAUSED_UNTIL_FILE
 
 logger = logging.getLogger(__name__)
 
+_SKILLS_FILE = "skills.md"
 _DEFAULT_HISTORY_LIMIT = 50  # max message pairs kept per user
 _REFLECTION_WINDOW = timedelta(minutes=45)  # keep a reflection on its model across follow-ups
 _SYNTHETIC_ADAPTERS = (HEARTBEAT_ADAPTER, EOD_ADAPTER)  # not real user activity
@@ -70,7 +70,6 @@ class Orchestrator:
         system_prompt_path: str,
         token_tracker: TokenTracker | None = None,
         history_limit: int = _DEFAULT_HISTORY_LIMIT,
-        mempalace: MemPalaceStore | None = None,
         reflection_agent: BaseAgent | None = None,
     ) -> None:
         self._agent = agent
@@ -78,7 +77,6 @@ class Orchestrator:
         self._system_prompt_path = system_prompt_path
         self._token_tracker = token_tracker
         self._history_limit = history_limit
-        self._mempalace = mempalace
         self._reflection_agent = reflection_agent
         self._conversations: dict[str, list[dict]] = {}
         self._reflection_until: dict[str, datetime] = {}
@@ -192,9 +190,6 @@ class Orchestrator:
     ) -> None:
         """Append the latest exchange and trim if over the limit.
 
-        Also persists every exchange to MemPalace so conversations
-        survive bot restarts and can be recalled semantically.
-
         Args:
             user_id: The user's identifier.
             user_text: The user's message text.
@@ -203,16 +198,6 @@ class Orchestrator:
         history = self._conversations.setdefault(user_id, [])
         history.append({"role": "user", "content": user_text})
         history.append({"role": "assistant", "content": response.text})
-
-        # Persist every exchange immediately (survives restarts)
-        if self._mempalace and not user_text.startswith("/"):
-            self._mempalace.store_conversation(
-                [
-                    {"role": "user", "content": user_text},
-                    {"role": "assistant", "content": response.text},
-                ],
-                user_id,
-            )
 
         if len(history) > self._history_limit:
             overflow = len(history) - self._history_limit
@@ -280,16 +265,6 @@ class Orchestrator:
         """
         text = incoming.text.strip()
 
-        if text.lower().startswith("/memories"):
-            if self._mempalace:
-                # Extract optional filter: "/memories guitar" → "guitar"
-                parts = text.split(maxsplit=1)
-                query = parts[1].strip() if len(parts) > 1 else None
-                reply = self._mempalace.format_listing(query=query)
-            else:
-                reply = "MemPalace is disabled (USE_MEMPALACE=false)."
-            return OutgoingMessage(user_id=incoming.user_id, text=reply)
-
         if text.lower() == "/clear":
             self.clear_history(incoming.user_id)
             return OutgoingMessage(
@@ -311,15 +286,12 @@ class Orchestrator:
                     "Categories: food, transport, entertainment.",
                 )
             skill_text = parts[1].strip()
-            if self._mempalace:
-                self._mempalace.store(
-                    f"Skill: {skill_text}",
-                    hall="hall_facts",
-                    room="skill",
-                )
-                reply = f"🧠 Skill stored: {skill_text[:80]}…" if len(skill_text) > 80 else f"🧠 Skill stored: {skill_text}"
-            else:
-                reply = "MemPalace is disabled (USE_MEMPALACE=false)."
+            try:
+                existing = self._sandbox.read_file(_SKILLS_FILE)
+            except SandboxFileNotFoundError:
+                existing = "# Skills\n"
+            self._sandbox.write_file(_SKILLS_FILE, existing.rstrip("\n") + f"\n- {skill_text}\n")
+            reply = f"🧠 Skill stored: {skill_text[:80]}…" if len(skill_text) > 80 else f"🧠 Skill stored: {skill_text}"
             return OutgoingMessage(user_id=incoming.user_id, text=reply)
 
         return None

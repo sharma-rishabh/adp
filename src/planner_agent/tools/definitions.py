@@ -154,53 +154,5 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["chart_type", "title", "data_json"],
         },
     },
-    {
-        "name": "memory_search",
-        "description": (
-            "Semantic search across MemPalace (ChromaDB). Searches: schedules, reflections, "
-            "skills, user profile, goals, preferences, notes. "
-            "Returns the most relevant snippets by meaning, not keyword."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Natural-language query (e.g. 'guitar practice last week').",
-                },
-                "n_results": {
-                    "type": "integer",
-                    "description": "Max snippets to return (default 3, keep low for cost).",
-                    "default": 3,
-                },
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "memory_store",
-        "description": (
-            "Store a memory in MemPalace (ChromaDB) for future semantic retrieval. "
-            "Use for: schedules/daily plans (category: event), reflections (category: reflection), "
-            "goal updates (category: goal), preferences (category: preference), skills (category: event). "
-            "Do NOT use for structured data like habit logs or budget — those go to JSON files."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "text": {
-                    "type": "string",
-                    "description": "The text to store verbatim.",
-                },
-                "category": {
-                    "type": "string",
-                    "enum": ["reflection", "goal", "preference", "event"],
-                    "description": "Memory category for organisation.",
-                    "default": "event",
-                },
-            },
-            "required": ["text"],
-        },
-    },
 ]
 

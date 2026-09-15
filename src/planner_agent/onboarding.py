@@ -23,14 +23,6 @@ def _ask(prompt: str, default: str = "") -> str:
     return answer or default
 
 
-def _ask_bool(prompt: str, default: bool = True) -> bool:
-    hint = "Y/n" if default else "y/N"
-    answer = input(f"{prompt} [{hint}]: ").strip().lower()
-    if not answer:
-        return default
-    return answer in ("y", "yes", "true", "1")
-
-
 def _ask_recurring_schedule() -> str:
     """Interactively collect recurring daily routines."""
     print("\n📅 Let's capture your recurring daily schedule.")
@@ -78,7 +70,6 @@ def run_onboarding() -> None:
     nudge_times_raw = _ask("Nudge times (comma-separated HH:MM, blank=off)", "09:00,13:00,18:00")
     nudge_times = [t.strip() for t in nudge_times_raw.split(",") if t.strip()]
     token_budget = int(_ask("Daily token budget", "100000"))
-    use_mempalace = _ask_bool("Enable MemPalace semantic memory?", True)
 
     config_dict = generate_default_config(
         sandbox_path=sandbox_path,
@@ -86,7 +77,6 @@ def run_onboarding() -> None:
         nudge_times=nudge_times,
         daily_token_budget=token_budget,
         claude_model=claude_model,
-        use_mempalace=use_mempalace,
     )
 
     # --- Write config ---
