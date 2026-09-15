@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+import socket
 import sys
 from pathlib import Path
 
@@ -36,6 +37,24 @@ def _configure_logging() -> None:
         datefmt="%Y-%m-%d %H:%M:%S",
         stream=sys.stdout,
     )
+
+
+def _prefer_ipv4_dns() -> None:
+    """Make every DNS lookup in this process resolve IPv4 addresses only.
+
+    Some mobile networks advertise IPv6 but don't actually route it —
+    connections hang until httpx's/anyio's connect timeout, even though
+    IPv4 to the same host works instantly (observed running this on
+    Termux/Android over a mobile carrier). Both Telegram's and Anthropic's
+    APIs are fully reachable over IPv4 everywhere, so there's no downside
+    to skipping IPv6 resolution entirely rather than fixing this per-client.
+    """
+    original_getaddrinfo = socket.getaddrinfo
+
+    def ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        return original_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+    socket.getaddrinfo = ipv4_only_getaddrinfo
 
 
 async def  _async_main() -> None:
@@ -136,6 +155,7 @@ async def  _async_main() -> None:
 def run() -> None:
     """Synchronous entry point for the ``planner`` console script."""
     _configure_logging()
+    _prefer_ipv4_dns()
     try:
         asyncio.run(_async_main())
     except KeyboardInterrupt:
