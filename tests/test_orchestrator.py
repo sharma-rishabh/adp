@@ -363,3 +363,10 @@ class TestTokenProgressBar:
         assert "⚡" not in reply.text
 
 
+
+
+async def test_history_survives_restart(fake_agent, fake_sandbox):
+    first = Orchestrator(fake_agent, fake_sandbox, "instructions/system_prompt.md")
+    await first.handle_message(_make_message("hello"))
+    second = Orchestrator(fake_agent, fake_sandbox, "instructions/system_prompt.md")
+    assert second._conversations["user1"][0]["content"] == "hello"

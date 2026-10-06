@@ -1,12 +1,13 @@
 """Orchestrator — routes messages between adapters and the agent.
 
-Maintains per-user conversation history (in-memory for MVP) and loads
+Maintains per-user conversation history (persisted to the sandbox) and loads
 the system prompt from the sandbox on each request so that prompt
 edits take effect immediately.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import UTC, datetime, timedelta
@@ -21,6 +22,7 @@ from .triggers import EOD_ADAPTER, EOD_TRIGGER, HEARTBEAT_ADAPTER, NUDGE_TRIGGER
 logger = logging.getLogger(__name__)
 
 _SKILLS_FILE = "skills.md"
+_HISTORY_FILE = "conversations.json"
 _DEFAULT_HISTORY_LIMIT = 50  # max message pairs kept per user
 _REFLECTION_WINDOW = timedelta(minutes=45)  # keep a reflection on its model across follow-ups
 _SYNTHETIC_ADAPTERS = (HEARTBEAT_ADAPTER, EOD_ADAPTER)  # not real user activity
@@ -78,7 +80,7 @@ class Orchestrator:
         self._token_tracker = token_tracker
         self._history_limit = history_limit
         self._reflection_agent = reflection_agent
-        self._conversations: dict[str, list[dict]] = {}
+        self._conversations: dict[str, list[dict]] = self._load_history()
         self._reflection_until: dict[str, datetime] = {}
         self._last_user_activity: dict[str, datetime] = {}
 
@@ -208,6 +210,18 @@ class Orchestrator:
                 overflow,
                 user_id,
             )
+        self._save_history()
+
+    def _load_history(self) -> dict[str, list[dict]]:
+        """Restore history saved by a previous run; empty if missing or corrupt."""
+        try:
+            return json.loads(self._sandbox.read_file(_HISTORY_FILE))
+        except (SandboxFileNotFoundError, ValueError):
+            return {}
+
+    def _save_history(self) -> None:
+        # ponytail: rewrites the whole file each exchange; fine at 50 messages per user.
+        self._sandbox.write_file(_HISTORY_FILE, json.dumps(self._conversations))
 
     def _log_usage(self, user_id: str, response: AgentResponse) -> None:
         """Log token usage and tool calls.
@@ -252,6 +266,7 @@ class Orchestrator:
             user_id: The user whose history to clear.
         """
         self._conversations.pop(user_id, None)
+        self._save_history()
         logger.info("Cleared history for user=%s", user_id)
 
     def _handle_command(self, incoming: IncomingMessage) -> OutgoingMessage | None:
