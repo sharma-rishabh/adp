@@ -14,7 +14,7 @@ import socket
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
 from .adapters.telegram import TelegramAdapter
 from .agents.base import BaseAgent
@@ -59,7 +59,7 @@ def _prefer_ipv4_dns() -> None:
 
 async def  _async_main() -> None:
     """Assemble the application graph and run the Telegram adapter."""
-    load_dotenv()
+    load_dotenv(find_dotenv(usecwd=True))
     config = AppConfig.from_file()
 
     # Seed sandbox with instruction templates if missing
